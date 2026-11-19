@@ -7,7 +7,7 @@ from wiki_app.config import get_settings
 
 
 def configure_logging(component: str):
-    """component 区分 api/worker；滚动文件限制日志占用并保留最近三份历史。"""
+    """component 区分 api/worker；按配置限制文件大小和历史份数。"""
     settings = get_settings()
     settings.log_dir.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger("wiki_app")
@@ -20,8 +20,8 @@ def configure_logging(component: str):
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     for handler in (
         logging.StreamHandler(),
-        RotatingFileHandler(settings.log_dir / f"{component}.log", maxBytes=5_000_000,
-                            backupCount=3, encoding="utf-8"),
+        RotatingFileHandler(settings.log_dir / f"{component}.log", maxBytes=settings.log_max_bytes,
+                            backupCount=settings.log_backup_count, encoding="utf-8"),
     ):
         handler.setFormatter(formatter)
         logger.addHandler(handler)

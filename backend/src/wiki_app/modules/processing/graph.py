@@ -167,7 +167,7 @@ def relate_node(state: RunState):
         analysis = session.scalar(select(Analysis).where(Analysis.run_id == run.id))
     index_sources(record.id, run.version)
     candidates = retrieve(
-        " ".join(analysis.topics) + " " + analysis.summary[:300], limit=10, exclude_record=record.id
+        " ".join(analysis.topics) + " " + analysis.summary[:get_settings().relation_summary_chars], limit=get_settings().relation_candidates, exclude_record=record.id
     )
     if not candidates:
         return {}
@@ -212,15 +212,15 @@ def update_wiki_node(state: RunState):
         analysis = session.scalar(select(Analysis).where(Analysis.run_id == run.id))
         sources = sources_for(session, record.id, run.version)
         keys = {title_key(topic) for topic in analysis.topics}
-        # ponytail: 个人库先扫描最多 200 个页标题；规模扩大后增加主题索引召回。
+        # ponytail: 个人库先按配置上限扫描页标题；规模扩大后增加主题索引召回。
         pages = [
             page
             for page in session.scalars(
-                select(WikiPage).order_by(WikiPage.updated_at.desc()).limit(200)
+                select(WikiPage).order_by(WikiPage.updated_at.desc()).limit(get_settings().wiki_scan_limit)
             )
             if page.title_key in keys
             or any(key in page.title_key or page.title_key in key for key in keys)
-        ][:4]
+        ][:get_settings().wiki_existing_limit]
         versions = {page.id: page.version for page in pages}
         old_ids = set(sid for page in pages for sid in page.source_ids)
         old_sources = (
@@ -237,7 +237,7 @@ def update_wiki_node(state: RunState):
         }
         for p in pages
     ]
-    if sum(len(p.generated) for p in pages) > 50000:
+    if sum(len(p.generated) for p in pages) > get_settings().wiki_context_chars:
         raise AppError(
             "相关 Wiki 已超过本次综合大小上限，旧页面未改动，请拆分主题后重试。", "context_limit"
         )
@@ -313,7 +313,7 @@ def execute_run(run_id: str, checkpointer):
         run.status, run.attempts, run.error = "running", run.attempts + 1, None
     try:
         graph = build_graph(checkpointer)
-        config = {"configurable": {"thread_id": run_id}, "recursion_limit": 30}
+        config = {"configurable": {"thread_id": run_id}, "recursion_limit": get_settings().graph_recursion_limit}
         saved = graph.get_state(config)
         # 恢复时传 None；重新传入初始输入会启动新的执行路径。
         graph.invoke(None if saved.values else {"run_id": run_id}, config=config, durability="sync")

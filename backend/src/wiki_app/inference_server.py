@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from wiki_app.config import get_settings
 from wiki_app.integrations.resources import gpu_slot
 from wiki_app.integrations.storage import storage_path
 
@@ -55,7 +56,7 @@ def infer(data: InferenceInput, x_request_id: str = Header(default="")):
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=7200,
+                timeout=get_settings().inference_timeout_seconds,
                 check=False,
             )
             if result.returncode:
@@ -75,6 +76,7 @@ def infer(data: InferenceInput, x_request_id: str = Header(default="")):
 if __name__ == "__main__":
     import uvicorn
 
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
+    settings = get_settings()
+    logging.basicConfig(level=settings.log_level,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    uvicorn.run(app, host="0.0.0.0", port=8100)
+    uvicorn.run(app, host=settings.container_host, port=settings.model_http_port)

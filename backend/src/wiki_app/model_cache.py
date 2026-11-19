@@ -11,14 +11,15 @@ from wiki_app.config import get_settings
 
 def prepare(kind: str) -> dict:
     """构造模型即完成首次下载和加载；命令退出后释放显存。"""
+    settings = get_settings()
     if kind == "ocr":
         import paddle
 
         from wiki_app.inference_task import create_ocr_engine
 
         engine = create_ocr_engine()
-        return {"kind": kind, "models": ["PP-OCRv5_mobile_det", "PP-OCRv5_mobile_rec"],
-                "cache": "/models/paddlex", "device": paddle.device.get_device(),
+        return {"kind": kind, "models": [settings.ocr_detection_model, settings.ocr_recognition_model],
+                "cache": settings.ocr_cache_dir, "device": paddle.device.get_device(),
                 "paddleocr": version("paddleocr"), "paddle": paddle.__version__,
                 "loaded": engine is not None}
     if kind == "asr":
@@ -29,7 +30,7 @@ def prepare(kind: str) -> dict:
         model = create_asr_model()
         vad = get_vad_model()
         return {"kind": kind, "model": get_settings().asr_model,
-                "cache": "/models/whisper", "device": str(model.model.device),
+                "cache": settings.asr_cache_dir, "device": str(model.model.device),
                 "compute_type": str(model.model.compute_type),
                 "faster_whisper": version("faster-whisper"), "vad_loaded": vad is not None}
     # 后端只做 HTTP 联通验证；权重下载/加载由 bge 容器 --prepare 完成。

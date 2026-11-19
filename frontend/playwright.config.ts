@@ -1,6 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { loadProjectConfig } from './project-config'
+
+const config = loadProjectConfig()
+const frontendHost = config.host === '0.0.0.0' ? '127.0.0.1' : config.host === '::' ? '::1' : config.host
+const frontendUrl = `http://${frontendHost.includes(':') ? `[${frontendHost}]` : frontendHost}:${config.port}`
 
 const windowsPython = resolve('../.venv/Scripts/python.exe')
 const unixPython = resolve('../.venv/bin/python')
@@ -10,11 +15,12 @@ const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || (process.platfo
 
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.ts',
   outputDir: '../data/playwright-results',
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
-  use: { baseURL: 'http://127.0.0.1:5173', trace: 'retain-on-failure',
+  use: { baseURL: frontendUrl, trace: 'retain-on-failure',
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     launchOptions: { executablePath } },
   projects: [
@@ -22,9 +28,9 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } } },
   ],
   webServer: [
-    { command: `"${python}" ../backend/tests/serve_app.py`, url: 'http://127.0.0.1:8000/healthz',
+    { command: `"${python}" ../backend/tests/serve_app.py`, url: config.apiUrl + '/healthz',
       reuseExistingServer: false, timeout: 30000 },
-    { command: 'npm run dev -- --port 5173 --strictPort', url: 'http://127.0.0.1:5173',
+    { command: 'npm run dev', url: frontendUrl,
       reuseExistingServer: false, timeout: 30000 },
   ],
 })

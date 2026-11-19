@@ -16,7 +16,7 @@ from wiki_app.integrations.storage import storage_path
 logger = logging.getLogger(__name__)
 
 
-def command(args: list[str], timeout: int = 120) -> str:
+def command(args: list[str], timeout: float | None = None) -> str:
     """执行本地 FFmpeg 工具，记录工具名和失败类型，不记录用户文件内容。"""
     try:
         result = subprocess.run(
@@ -25,7 +25,7 @@ def command(args: list[str], timeout: int = 120) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout,
+            timeout=get_settings().media_command_timeout_seconds if timeout is None else timeout,
             check=False,
         )
     except FileNotFoundError as exc:
@@ -63,13 +63,15 @@ def inference(kind: str, key: str) -> dict:
     url = settings.ocr_url if kind == "ocr" else settings.asr_url
     if not url:
         name = "OCR" if kind == "ocr" else "语音转写"
-        raise ConfigurationRequired(f"未启用{name}服务，请启动对应容器并配置服务地址后重试。")
+        raise ConfigurationRequired(f"未启用{name}服务，请检查 config.yaml 的 models 开关并启动容器。")
     storage_path(key)  # 调用前也校验路径，服务端将再次检查。
     request_id, started = uuid4().hex, time.monotonic()
     logger.info("推理请求 request_id=%s kind=%s storage_key=%s", request_id, kind, key)
     try:
         # GPU 锁由推理服务持有，客户端断开后仍能保护正在运行的模型子进程。
-        with httpx.Client(timeout=httpx.Timeout(7300, connect=10), trust_env=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(settings.inference_client_timeout_seconds,
+                                              connect=settings.model_connect_timeout_seconds),
+                          trust_env=False) as client:
             response = client.post(url.rstrip("/") + "/infer", json={"storage_key": key},
                                    headers={"X-Request-ID": request_id})
             response.raise_for_status()
@@ -92,7 +94,8 @@ def video_frames(key: str, duration: float) -> list[tuple[str, float]]:
     settings = get_settings()
     folder = storage_path("derived/" + Path(key).stem)
     folder.mkdir(parents=True, exist_ok=True)
-    count = min(settings.max_video_frames, max(1, int(duration // 60) + 1))
+    count = min(settings.max_video_frames,
+                max(1, int(duration // settings.video_frame_interval_seconds) + 1))
     frames = []
     for index in range(count):
         second = round((index + 0.5) * duration / count, 3)
@@ -111,7 +114,7 @@ def video_frames(key: str, duration: float) -> list[tuple[str, float]]:
                 "-frames:v",
                 "1",
                 "-vf",
-                "scale=1280:-2",
+                f"scale={settings.video_frame_width}:-2",
                 str(path),
             ]
         )

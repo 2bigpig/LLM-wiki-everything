@@ -22,7 +22,9 @@ app = procrastinate.App(
 )
 
 
-@app.task(queue="pipeline", retry=procrastinate.RetryStrategy(max_attempts=3, wait=10))
+@app.task(queue="pipeline", retry=procrastinate.RetryStrategy(
+    max_attempts=get_settings().worker_max_attempts, wait=get_settings().worker_retry_wait_seconds
+))
 def process_run(run_id: str):
     """相同执行加锁；业务提交后、检查点前退出也不会重复写结果。"""
     with PostgresSaver.from_conn_string(get_settings().postgres_dsn) as saver:
@@ -30,15 +32,17 @@ def process_run(run_id: str):
 
 
 async def dispatch():
+    settings = get_settings()
     while True:
         try:
             # 按心跳判断停滞，不能因音视频耗时长而误重试仍在执行的任务。
             stalled = await app.job_manager.get_stalled_jobs(
-                queue="pipeline", seconds_since_heartbeat=90
+                queue="pipeline", seconds_since_heartbeat=settings.worker_stalled_seconds
             )
             for job in stalled:
                 await app.job_manager.retry_job_by_id_async(job.id, retry_at=now())
-            await app.job_manager.prune_stalled_workers(seconds_since_heartbeat=90)
+            await app.job_manager.prune_stalled_workers(
+                seconds_since_heartbeat=settings.worker_stalled_seconds)
             with db.SessionLocal() as session:
                 pending = list(
                     session.scalars(
@@ -47,7 +51,7 @@ async def dispatch():
                             ProcessingRun.status.in_(("queued", "running")),
                         )
                         .order_by(ProcessingRun.created_at)
-                        .limit(100)
+                        .limit(settings.dispatch_batch_size)
                     )
                 )
             for run_id in pending:
@@ -59,15 +63,18 @@ async def dispatch():
                     pass
         except Exception:
             logger.exception("队列派发失败，待办仍保存在数据库，将再次尝试")
-        await asyncio.sleep(3)
+        await asyncio.sleep(settings.dispatch_interval_seconds)
 
 
 async def serve():
+    settings = get_settings()
     async with app.open_async():
         app.perform_import_paths()
         consumer = Worker(
-            app, queues=["pipeline"], concurrency=2, install_signal_handlers=False,
-            shutdown_graceful_timeout=20, update_heartbeat_interval=10, stalled_worker_timeout=90,
+            app, queues=["pipeline"], concurrency=settings.worker_concurrency,
+            install_signal_handlers=False, shutdown_graceful_timeout=settings.worker_shutdown_seconds,
+            update_heartbeat_interval=settings.worker_heartbeat_seconds,
+            stalled_worker_timeout=settings.worker_stalled_seconds,
         )
         loop = asyncio.get_running_loop()
         # Windows 的事件循环不支持 add_signal_handler；转到事件循环调用公开 stop()，
@@ -90,8 +97,8 @@ async def serve():
 def main():
     """以可导入模块启动，保持队列中的任务函数名稳定，并初始化本地日志。"""
     configure_logging("worker")
-    logger.info("Worker 启动 queue=pipeline concurrency=2 data_dir=%s",
-                get_settings().data_dir.resolve())
+    logger.info("Worker 启动 queue=pipeline concurrency=%d data_dir=%s",
+                get_settings().worker_concurrency, get_settings().data_dir.resolve())
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:

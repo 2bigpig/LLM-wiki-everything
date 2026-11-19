@@ -16,8 +16,9 @@ from wiki_app.integrations.web import read_webpage
 from wiki_app.models import Attachment, Record
 
 
-def split_text(text: str, size: int = 1600) -> list[str]:
+def split_text(text: str, size: int | None = None) -> list[str]:
     """优先按换行切分，超长段落切片；保留原文表达供引用核对。"""
+    size = get_settings().chunk_chars if size is None else size
     result, current = [], ""
     for line in text.replace("\r\n", "\n").splitlines(keepends=True):
         for offset in range(0, len(line), size):
@@ -32,6 +33,7 @@ def split_text(text: str, size: int = 1600) -> list[str]:
 
 
 def extract_attachment(attachment: Attachment) -> tuple[list[dict], list[str]]:
+    settings = get_settings()
     path = storage_path(attachment.storage_key)
     suffix = path.suffix.lower()
     pieces, notices = [], []
@@ -51,8 +53,8 @@ def extract_attachment(attachment: Attachment) -> tuple[list[dict], list[str]]:
             )
 
     if suffix in (".txt", ".md"):
-        if path.stat().st_size > 10_000_000:
-            raise AppError("文本文件超过 10 MB，请拆分后上传。", "text_limit")
+        if path.stat().st_size > settings.text_max_bytes:
+            raise AppError(f"文本文件超过 {settings.text_max_bytes} 字节上限，请拆分后上传。", "text_limit")
         try:
             add(path.read_text(encoding="utf-8-sig"), "text")
         except UnicodeDecodeError:
@@ -60,8 +62,8 @@ def extract_attachment(attachment: Attachment) -> tuple[list[dict], list[str]]:
     elif suffix == ".docx":
         with ZipFile(path) as archive:
             if (
-                len(archive.infolist()) > 10000
-                or sum(item.file_size for item in archive.infolist()) > 200_000_000
+                len(archive.infolist()) > settings.docx_max_entries
+                or sum(item.file_size for item in archive.infolist()) > settings.docx_max_unpacked_bytes
             ):
                 raise AppError("DOCX 解压后超过安全处理上限，请拆分文件。", "document_limit")
         document = Document(path)
@@ -77,18 +79,18 @@ def extract_attachment(attachment: Attachment) -> tuple[list[dict], list[str]]:
     elif suffix == ".pdf":
         last_error = None
         with pdfplumber.open(path) as document:
-            if len(document.pages) > 200:
-                notices.append("PDF 超过首版单次 200 页上限，仅读取前 200 页。")
-            for page_number, page in enumerate(document.pages[:200], 1):
+            if len(document.pages) > settings.pdf_max_pages:
+                notices.append(f"PDF 超过单次 {settings.pdf_max_pages} 页上限，仅读取前 {settings.pdf_max_pages} 页。")
+            for page_number, page in enumerate(document.pages[:settings.pdf_max_pages], 1):
                 text = page.extract_text() or ""
                 if text.strip():
                     add(text, "pdf_text", page=page_number)
-                if len(text.strip()) < 20:
+                if len(text.strip()) < settings.pdf_ocr_min_chars:
                     try:
                         folder = storage_path("derived/" + attachment.id)
                         folder.mkdir(parents=True, exist_ok=True)
                         image_path = folder / f"page-{page_number}.png"
-                        page.to_image(resolution=130).save(image_path)
+                        page.to_image(resolution=settings.pdf_render_dpi).save(image_path)
                         image_key = image_path.relative_to(
                             get_settings().data_dir.resolve()
                         ).as_posix()
@@ -102,8 +104,8 @@ def extract_attachment(attachment: Attachment) -> tuple[list[dict], list[str]]:
         notices.append("PDF 已提取文字；图表、公式和复杂版式的含义未单独分析。")
     elif attachment.media_type.startswith("image/"):
         with Image.open(path) as image:
-            if image.width * image.height > 25_000_000:
-                raise AppError("图片超过 2500 万像素上限，请缩小后上传。", "image_limit")
+            if image.width * image.height > settings.image_max_pixels:
+                raise AppError(f"图片超过 {settings.image_max_pixels} 像素上限，请缩小后上传。", "image_limit")
             image.verify()
         for item in inference("ocr", attachment.storage_key)["segments"]:
             add(item["text"], "ocr", bbox=item.get("bbox"))

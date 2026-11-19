@@ -60,9 +60,9 @@ def run_downloader(args: list[str], timeout: int):
                 "--no-playlist",
                 "--no-progress",
                 "--socket-timeout",
-                "20",
+                str(get_settings().downloader_socket_timeout_seconds),
                 "--retries",
-                "2",
+                str(get_settings().downloader_retries),
                 *args,
             ],
             capture_output=True,
@@ -97,14 +97,14 @@ def read_platform_video(
             "--write-subs",
             "--write-auto-subs",
             "--sub-langs",
-            "zh.*,en.*",
+            settings.subtitle_languages,
             "--sub-format",
             "vtt",
             "--skip-download",
             "--",
             url,
         ],
-        120,
+        settings.subtitle_timeout_seconds,
     )
     subtitles = sorted(
         folder.glob("*.vtt"), key=lambda path: (0 if ".zh" in path.name else 1, path.name)
@@ -119,11 +119,11 @@ def read_platform_video(
             "--max-filesize",
             f"{settings.max_upload_mb}M",
             "-f",
-            "bv*[height<=720]+ba/b[height<=720]/b",
+            f"bv*[height<={settings.platform_video_height}]+ba/b[height<={settings.platform_video_height}]/b",
             "--",
             url,
         ],
-        1200,
+        settings.media_download_timeout_seconds,
     )
     media = [
         path

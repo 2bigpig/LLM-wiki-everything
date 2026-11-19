@@ -16,6 +16,7 @@ progress.md
 **/.env.*
 !.env.example
 !**/.env.example
+# config.yaml 必须随镜像提供；.env.backup.* 由上述规则排除。
 **/*.pem
 **/*.key
 **/*.p12

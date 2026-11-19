@@ -13,7 +13,9 @@ RUN pip install --no-cache-dir nvidia-cublas-cu12==12.6.4.1 nvidia-cudnn-cu12==9
     nvidia-cuda-runtime-cu12==12.6.77 nvidia-cuda-nvrtc-cu12==12.6.85
 WORKDIR /app
 COPY backend/ /app/
+COPY config.yaml /app/config.yaml
 ARG INFERENCE_KIND=asr
+ENV WIKI_CONFIG_FILE=/app/config.yaml WIKI_RUNTIME=$INFERENCE_KIND INFERENCE_KIND=$INFERENCE_KIND
 RUN if [ "$INFERENCE_KIND" = "ocr" ]; then \
       # PaddleX 3.3 固定 PyYAML 6.0.2，仅调整独立 OCR 镜像的约束。\
       sed 's/^PyYAML==.*/PyYAML==6.0.2/' constraints.txt > /tmp/constraints-ocr.txt \

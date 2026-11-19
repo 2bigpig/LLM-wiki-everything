@@ -4,9 +4,14 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HOME=/models/hf
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir 'sentence-transformers>=3,<6' 'fastapi>=0.115,<1' 'uvicorn>=0.34,<1'
+    && pip install --no-cache-dir 'sentence-transformers>=3,<6' 'fastapi>=0.115,<1' 'uvicorn>=0.34,<1' \
+       'PyYAML>=6.0.2,<7' 'python-dotenv>=1,<2'
 WORKDIR /app
 COPY deploy/embedding_server.py /app/
+# 只复制轻量配置模块，向量容器不安装业务后端。
+COPY backend/src/wiki_app/__init__.py backend/src/wiki_app/config.py /app/src/wiki_app/
+COPY config.yaml /app/config.yaml
+ENV PYTHONPATH=/app/src WIKI_CONFIG_FILE=/app/config.yaml WIKI_RUNTIME=bge
 RUN useradd -u 10001 -m app && mkdir -p /models && chown app:app /models
 USER app
 EXPOSE 8100

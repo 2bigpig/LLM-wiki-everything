@@ -199,7 +199,7 @@ def usage():
                     row,
                     "id run_id stage model status charged_tokens input_tokens output_tokens duration_seconds created_at",
                 )
-                for row in rows[:100]
+                for row in rows[:get_settings().usage_calls_limit]
             ],
         }
 
@@ -235,7 +235,8 @@ def cancel_run(run_id: str):
 
 @api.get("/search")
 def search(q: str = Query(min_length=1, max_length=300)):
-    return {"items": retrieve(q, limit=30), "semantic": get_settings().embeddings_enabled}
+    return {"items": retrieve(q, limit=get_settings().search_api_limit),
+            "semantic": get_settings().embeddings_enabled}
 
 
 app.include_router(api)

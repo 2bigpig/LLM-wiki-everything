@@ -17,7 +17,7 @@ def create_asr_model():
         settings.asr_model,
         device=settings.inference_device,
         compute_type=settings.asr_compute_type,
-        download_root="/models/whisper",
+        download_root=settings.asr_cache_dir,
     )
 
 
@@ -25,7 +25,8 @@ def transcribe(key: str) -> dict:
     settings = get_settings()
     model = create_asr_model()
     segments, info = model.transcribe(
-        str(storage_path(key)), vad_filter=True, beam_size=5, condition_on_previous_text=False
+        str(storage_path(key)), vad_filter=settings.asr_vad_filter, beam_size=settings.asr_beam_size,
+        condition_on_previous_text=settings.asr_condition_on_previous_text,
     )
     return {
         "segments": [
@@ -45,11 +46,11 @@ def create_ocr_engine():
     settings = get_settings()
     return PaddleOCR(
         device="gpu:0" if settings.inference_device == "cuda" else "cpu",
-        text_detection_model_name="PP-OCRv5_mobile_det",
-        text_recognition_model_name="PP-OCRv5_mobile_rec",
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
+        text_detection_model_name=settings.ocr_detection_model,
+        text_recognition_model_name=settings.ocr_recognition_model,
+        use_doc_orientation_classify=settings.ocr_doc_orientation,
+        use_doc_unwarping=settings.ocr_doc_unwarping,
+        use_textline_orientation=settings.ocr_textline_orientation,
     )
 
 
@@ -78,7 +79,9 @@ def ocr(key: str) -> dict:
                         "confidence": float(scores[index]) if index < len(scores) else None,
                     }
                 )
-    return {"segments": segments, "model": "PP-OCRv5_mobile"}
+    settings = get_settings()
+    return {"segments": segments,
+            "model": f"{settings.ocr_detection_model}+{settings.ocr_recognition_model}"}
 
 
 if __name__ == "__main__":

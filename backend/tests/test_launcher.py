@@ -11,6 +11,7 @@ import psycopg
 import pytest
 
 from wiki_app import launcher
+from wiki_app.config import get_settings
 
 
 def free_port():
@@ -38,14 +39,14 @@ def test_port_in_use_does_not_stop_existing_service(monkeypatch, checked_environ
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen()
-        monkeypatch.setattr(launcher, "PORT", listener.getsockname()[1])
+        monkeypatch.setattr(get_settings().services, "api_port", listener.getsockname()[1])
         with pytest.raises(RuntimeError, match="端口"):
             launcher.check_environment()
         assert listener.fileno() >= 0
 
 
 def test_database_failure_does_not_leak_password(environment, monkeypatch, checked_environment):
-    monkeypatch.setattr(launcher, "PORT", 0)
+    monkeypatch.setattr(get_settings().services, "api_port", 0)
     monkeypatch.setattr(psycopg, "connect", MagicMock(side_effect=psycopg.OperationalError("secret-password")))
     with pytest.raises(RuntimeError, match="数据库连接失败") as error:
         launcher.check_environment()
@@ -53,7 +54,7 @@ def test_database_failure_does_not_leak_password(environment, monkeypatch, check
 
 
 def test_missing_tables_only_suggests_migration(environment, monkeypatch, checked_environment):
-    monkeypatch.setattr(launcher, "PORT", 0)
+    monkeypatch.setattr(get_settings().services, "api_port", 0)
     connection = MagicMock()
     cursor = connection.__enter__.return_value.cursor.return_value.__enter__.return_value
     cursor.fetchone.return_value = (None,)
@@ -64,7 +65,7 @@ def test_missing_tables_only_suggests_migration(environment, monkeypatch, checke
 
 
 def test_api_failure_never_starts_worker(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(launcher, "PORT", free_port())
+    monkeypatch.setattr(get_settings().services, "api_port", free_port())
     marker = tmp_path / "worker-started"
     worker_code = f"from pathlib import Path; Path({str(marker)!r}).touch()"
     code = launcher.supervise(
@@ -76,7 +77,7 @@ def test_api_failure_never_starts_worker(monkeypatch, tmp_path, capsys):
 
 
 def test_health_timeout_cleans_child(monkeypatch, capsys):
-    monkeypatch.setattr(launcher, "PORT", free_port())
+    monkeypatch.setattr(get_settings().services, "api_port", free_port())
     command = [sys.executable, "-c", "import time; time.sleep(120)"]
     assert launcher.supervise(command, command, startup_timeout=0.2, stop_timeout=0.1) == 1
     assert "未就绪" in capsys.readouterr().out
@@ -85,7 +86,7 @@ def test_health_timeout_cleans_child(monkeypatch, capsys):
 @pytest.mark.parametrize("failing_role", ["API", "Worker"])
 def test_failure_cleans_tree_but_keeps_unrelated_process(monkeypatch, capsys, failing_role):
     port = free_port()
-    monkeypatch.setattr(launcher, "PORT", port)
+    monkeypatch.setattr(get_settings().services, "api_port", port)
     # 孙进程忽略正常停止信号，验证 Job/进程组的兜底清理，而非恰好收到广播退出。
     child_code = (
         "import signal,time; "
@@ -144,7 +145,7 @@ HTTPServer(('127.0.0.1', {port}), Handler).serve_forever()
 
 
 def test_signal_handlers_are_restored(monkeypatch):
-    monkeypatch.setattr(launcher, "PORT", free_port())
+    monkeypatch.setattr(get_settings().services, "api_port", free_port())
     previous = signal.getsignal(signal.SIGINT)
     command = [sys.executable, "-c", "raise SystemExit(1)"]
     assert launcher.supervise(command, command, startup_timeout=3, stop_timeout=0.1) == 1

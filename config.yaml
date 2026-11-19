@@ -1,0 +1,147 @@
+# 普通参数唯一入口；密钥只放 .env。修改后重启对应服务。
+# 时间默认单位为秒；相对本机路径以本文件目录为基准。
+services:
+  api_host: 127.0.0.1
+  api_port: 8000
+  frontend_host: 127.0.0.1
+  frontend_port: 5173
+  # 自动允许 localhost / 127.0.0.1 的前端端口，此处仅补充其他来源。
+  extra_cors_origins: []
+  model_bind_host: 127.0.0.1
+  ocr_port: 8101
+  asr_port: 8102
+  embedding_port: 8103
+  container_host: 0.0.0.0
+  model_http_port: 8100
+database:
+  db_host: 127.0.0.1
+  db_port: 5432
+  db_name: wiki
+  db_user: wiki
+  db_container_host: postgres
+  db_container_port: 5432
+  db_connect_timeout_seconds: 5
+  # 通常留空；隔离测试使用 -csearch_path 指定 schema。
+  db_options: ''
+paths:
+  data_dir: data
+  log_dir: data/logs
+  ffmpeg_dir: data/tools/ffmpeg
+  container_data_dir: /data
+  # 缓存必须保存在已挂载的 /models 卷下，避免随容器销毁。
+  hf_cache_dir: /models/hf
+  ocr_cache_dir: /models/paddlex
+  asr_cache_dir: /models/whisper
+launcher:
+  startup_timeout_seconds: 30
+  stop_timeout_seconds: 25
+  health_timeout_seconds: 1
+  health_poll_seconds: 0.1
+  process_poll_seconds: 0.2
+  output_join_seconds: 2
+containers:
+  # Compose 健康检查使用的间隔、超时和最大重试次数。
+  postgres_health_interval_seconds: 5
+  postgres_health_timeout_seconds: 5
+  postgres_health_retries: 15
+  model_health_interval_seconds: 10
+  model_health_timeout_seconds: 5
+  model_health_retries: 10
+  model_health_request_seconds: 3
+worker:
+  worker_concurrency: 2
+  worker_max_attempts: 3
+  worker_retry_wait_seconds: 10
+  dispatch_interval_seconds: 3
+  dispatch_batch_size: 100
+  worker_shutdown_seconds: 20
+  worker_heartbeat_seconds: 10
+  worker_stalled_seconds: 90
+llm:
+  llm_base_url: https://api.openai.com/v1
+  llm_model: ''
+  llm_max_output_tokens: 2400
+  monthly_token_limit: 1000000
+  max_calls_per_run: 20
+  llm_timeout_seconds: 180
+models:
+  ocr_enabled: true
+  asr_enabled: true
+  embeddings_enabled: true
+  inference_device: cuda
+  inference_timeout_seconds: 7200
+  inference_client_timeout_seconds: 7300
+  model_connect_timeout_seconds: 10
+  ocr_detection_model: PP-OCRv5_mobile_det
+  ocr_recognition_model: PP-OCRv5_mobile_rec
+  ocr_doc_orientation: false
+  ocr_doc_unwarping: false
+  ocr_textline_orientation: false
+  # 支持 faster-whisper 别名或 Hugging Face 仓库名，下载和推理共用。
+  asr_model: medium
+  asr_compute_type: int8_float16
+  asr_beam_size: 5
+  asr_vad_filter: true
+  asr_condition_on_previous_text: false
+  embedding_model: BAAI/bge-m3
+  embedding_device: cpu
+  embedding_batch_size: 2
+  embedding_max_seq_length: 1024
+  embedding_timeout_seconds: 180
+  embedding_max_batch: 64
+  embedding_max_text_chars: 100000
+processing:
+  max_upload_mb: 500
+  max_media_minutes: 180
+  max_video_frames: 8
+  chunk_chars: 1600
+  text_max_bytes: 10000000
+  docx_max_entries: 10000
+  docx_max_unpacked_bytes: 200000000
+  pdf_max_pages: 200
+  pdf_ocr_min_chars: 20
+  pdf_render_dpi: 130
+  image_max_pixels: 25000000
+  video_frame_interval_seconds: 60
+  video_frame_width: 1280
+  media_command_timeout_seconds: 120
+web:
+  browser_enabled: false
+  web_max_bytes: 5000000
+  web_redirect_attempts: 5
+  web_timeout_seconds: 25
+  web_min_text_chars: 80
+  browser_timeout_seconds: 35
+  downloader_socket_timeout_seconds: 20
+  downloader_retries: 2
+  subtitle_timeout_seconds: 120
+  media_download_timeout_seconds: 1200
+  subtitle_languages: zh.*,en.*
+  platform_video_height: 720
+search:
+  search_default_limit: 12
+  search_api_limit: 30
+  search_max_terms: 16
+  search_candidates: 40
+  search_rrf_k: 60
+  index_batch_size: 8
+  relation_candidates: 10
+  relation_summary_chars: 300
+  wiki_scan_limit: 200
+  wiki_existing_limit: 4
+  wiki_context_chars: 50000
+  graph_recursion_limit: 30
+  wiki_list_limit: 200
+  wiki_revision_limit: 100
+  record_history_limit: 30
+  usage_calls_limit: 100
+logging:
+  log_level: INFO
+  log_max_bytes: 5000000
+  log_backup_count: 3
+tools:
+  ffmpeg_download_url: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+  ocr_download_base_url: https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0
+  model_download_timeout_seconds: 120
+  model_download_workers: 2
+  ffmpeg_download_timeout_seconds: 300

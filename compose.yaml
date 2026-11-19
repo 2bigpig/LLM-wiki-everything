@@ -1,22 +1,23 @@
-# 只运行数据库和模型；FastAPI、Worker、前端直接在宿主机运行。
+# 必须通过 start-services.ps1 或 wiki_app.configuration compose 注入公共配置。
+# 固定项目名与卷名，配置迁移不创建另一份数据库或模型缓存。
 name: llm-wiki
 services:
   postgres:
-    # 使用本机已有的 PostgreSQL 16 + pgvector；已有数据不可直接跨主版本切换。
     image: pgvector/pgvector:pg16
+    command: ["postgres", "-p", "${WIKI_DB_INTERNAL_PORT:?请使用统一服务脚本}"]
     environment:
-      POSTGRES_DB: wiki
-      POSTGRES_USER: wiki
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki-local-change-me}
+      POSTGRES_DB: ${WIKI_DB_NAME:?请使用统一服务脚本}
+      POSTGRES_USER: ${WIKI_DB_USER:?请使用统一服务脚本}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请配置数据库密码}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${WIKI_DB_BIND_HOST}:${WIKI_DB_PORT}:${WIKI_DB_INTERNAL_PORT}"
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wiki -d wiki"]
-      interval: 5s
-      timeout: 5s
-      retries: 15
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -p ${WIKI_DB_INTERNAL_PORT}"]
+      interval: ${WIKI_PG_HEALTH_INTERVAL}s
+      timeout: ${WIKI_PG_HEALTH_TIMEOUT}s
+      retries: ${WIKI_PG_HEALTH_RETRIES}
     restart: unless-stopped
   bge:
     image: llm-wiki-bge:local
@@ -24,20 +25,24 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.embeddings
     environment:
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
-      HF_HOME: /models/hf
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WIKI_CONFIG_FILE: /app/config.yaml
+      WIKI_RUNTIME: bge
+      HF_HOME: ${WIKI_HF_CACHE}
+      HF_HUB_DOWNLOAD_TIMEOUT: ${WIKI_DOWNLOAD_TIMEOUT}
+      HF_HUB_ETAG_TIMEOUT: ${WIKI_DOWNLOAD_TIMEOUT}
+      PYTHONPATH: /app/src
     ports:
-      - "127.0.0.1:8103:8100"
+      - "${WIKI_BIND_HOST}:${WIKI_BGE_PORT}:${WIKI_MODEL_PORT}"
     volumes:
-      # 复用已下载的模型卷；只读挂载入口源码方便排错。
       - embeddings:/models
+      - ${WIKI_CONFIG_SOURCE}:/app/config.yaml:ro
       - ./deploy/embedding_server.py:/app/embedding_server.py:ro
+      - ./backend/src/wiki_app/config.py:/app/src/wiki_app/config.py:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/healthz', timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      test: ["CMD", "python", "-c", "import urllib.request; from wiki_app.config import get_settings; s=get_settings(); urllib.request.urlopen(s.http_url(s.container_host, s.model_http_port) + '/healthz', timeout=s.model_health_request_seconds)"]
+      interval: ${WIKI_MODEL_HEALTH_INTERVAL}s
+      timeout: ${WIKI_MODEL_HEALTH_TIMEOUT}s
+      retries: ${WIKI_MODEL_HEALTH_RETRIES}
     restart: unless-stopped
 volumes:
   postgres:

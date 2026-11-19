@@ -7,6 +7,8 @@ import os
 import re
 from pathlib import Path
 
+from wiki_app.config import get_settings
+
 
 def download(kind: str) -> dict:
     """模型卷以应用 UID 写入，避免预下载后正式容器无法维护缓存。"""
@@ -15,22 +17,29 @@ def download(kind: str) -> dict:
         os.chown(root, 10001, 10001)
         os.setgid(10001)
         os.setuid(10001)
-    os.environ.setdefault("HF_HOME", "/models/hf")
+    settings = get_settings()
+    os.environ["HF_HOME"] = settings.hf_cache_dir
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     from huggingface_hub import HfApi, snapshot_download
 
-    repo = "Systran/faster-whisper-medium" if kind == "asr" else "BAAI/bge-m3"
-    cache = "/models/whisper" if kind == "asr" else "/models/hf/hub"
-    info = HfApi().model_info(repo, token=False)
-    names = {file.rfilename for file in info.siblings}
     if kind == "asr":
-        patterns = ["*.json", "*.bin", "*.txt", "*.model"]
+        # 使用 faster-whisper 自己的别名映射，避免下载和推理选择不同仓库。
+        from faster_whisper.utils import download_model
+
+        snapshot = Path(download_model(settings.asr_model, cache_dir=settings.asr_cache_dir))
+        repo = settings.asr_model
     else:
+        repo = settings.embedding_model
+        snapshot = None
+    cache = str(Path(settings.hf_cache_dir) / "hub")
+    if snapshot is None:
+        info = HfApi().model_info(repo, token=False)
+        names = {file.rfilename for file in info.siblings}
         weight = "model.safetensors" if "model.safetensors" in names else "pytorch_model.bin"
         patterns = [weight, "*.json", "*.model", "1_Pooling/*", "2_Normalize/*"]
-    snapshot = Path(snapshot_download(repo, cache_dir=cache, allow_patterns=patterns,
-                                      max_workers=2, token=False))
+        snapshot = Path(snapshot_download(repo, cache_dir=cache, allow_patterns=patterns,
+                                         max_workers=settings.model_download_workers, token=False))
     weights = []
     for path in sorted(snapshot.rglob("*")):
         if path.is_file() and path.suffix in (".bin", ".safetensors"):

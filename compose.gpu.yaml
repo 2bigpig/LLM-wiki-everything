@@ -1,4 +1,4 @@
-# 与 compose.yaml 叠加；宿主机用回环端口，容器间用服务名。
+# 与 compose.yaml 叠加；普通参数来自公共 YAML，只有数据库密码传入模型服务。
 services:
   ocr:
     image: llm-wiki-ocr:latest
@@ -8,24 +8,22 @@ services:
       args:
         INFERENCE_KIND: ocr
     environment:
-      DATABASE_URL: postgresql+psycopg://wiki:${POSTGRES_PASSWORD:-wiki-local-change-me}@postgres:5432/wiki
-      DATA_DIR: /data
+      WIKI_CONFIG_FILE: /app/config.yaml
+      WIKI_RUNTIME: ocr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请配置数据库密码}
       INFERENCE_KIND: ocr
-      INFERENCE_DEVICE: cuda
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # 修改服务入口后 restart；每个任务子进程都会读取最新源码。
       PYTHONPATH: /app/src
-      PADDLE_PDX_CACHE_HOME: /models/paddlex
+      PADDLE_PDX_CACHE_HOME: ${WIKI_OCR_CACHE}
       PADDLE_PDX_MODEL_SOURCE: bos
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     ports:
-      - "127.0.0.1:8101:8100"
+      - "${WIKI_BIND_HOST}:${WIKI_OCR_PORT}:${WIKI_MODEL_PORT}"
     volumes:
-      # 与本地 DATA_DIR 对应同一目录，双方只传相对 storage_key。
       - type: bind
-        source: ${DATA_DIR:-./data}
-        target: /data
+        source: ${WIKI_DATA_SOURCE}
+        target: ${WIKI_DATA_TARGET}
         read_only: true
+      - ${WIKI_CONFIG_SOURCE}:/app/config.yaml:ro
       - ./backend/src:/app/src:ro
       - ocr-models:/models
     deploy:
@@ -47,21 +45,22 @@ services:
       args:
         INFERENCE_KIND: asr
     environment:
-      DATABASE_URL: postgresql+psycopg://wiki:${POSTGRES_PASSWORD:-wiki-local-change-me}@postgres:5432/wiki
-      DATA_DIR: /data
+      WIKI_CONFIG_FILE: /app/config.yaml
+      WIKI_RUNTIME: asr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请配置数据库密码}
       INFERENCE_KIND: asr
-      INFERENCE_DEVICE: cuda
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PYTHONPATH: /app/src
-      ASR_MODEL: ${ASR_MODEL:-medium}
-      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8_float16}
+      HF_HOME: ${WIKI_HF_CACHE}
+      HF_HUB_DOWNLOAD_TIMEOUT: ${WIKI_DOWNLOAD_TIMEOUT}
+      HF_HUB_ETAG_TIMEOUT: ${WIKI_DOWNLOAD_TIMEOUT}
     ports:
-      - "127.0.0.1:8102:8100"
+      - "${WIKI_BIND_HOST}:${WIKI_ASR_PORT}:${WIKI_MODEL_PORT}"
     volumes:
       - type: bind
-        source: ${DATA_DIR:-./data}
-        target: /data
+        source: ${WIKI_DATA_SOURCE}
+        target: ${WIKI_DATA_TARGET}
         read_only: true
+      - ${WIKI_CONFIG_SOURCE}:/app/config.yaml:ro
       - ./backend/src:/app/src:ro
       - asr-models:/models
     deploy:

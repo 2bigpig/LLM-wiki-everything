@@ -25,14 +25,16 @@ def public_address(host: str, port: int) -> str:
         raise AppError("无法解析网页地址，请检查链接或稍后重试。", "fetch_failed") from exc
 
 
-def fetch_html(url: str, max_bytes: int = 5_000_000) -> tuple[str, str]:
+def fetch_html(url: str, max_bytes: int | None = None) -> tuple[str, str]:
     current = normalize_url(url)
-    for _ in range(5):
+    settings = get_settings()
+    max_bytes = settings.web_max_bytes if max_bytes is None else max_bytes
+    for _ in range(settings.web_redirect_attempts):
         parts = urlsplit(current)
         port = parts.port or (443 if parts.scheme == "https" else 80)
         ip = public_address(parts.hostname, port)
-        sock = socket.create_connection((ip, port), timeout=25)
-        connection = http.client.HTTPConnection(parts.hostname, port, timeout=25)
+        sock = socket.create_connection((ip, port), timeout=settings.web_timeout_seconds)
+        connection = http.client.HTTPConnection(parts.hostname, port, timeout=settings.web_timeout_seconds)
         try:
             if parts.scheme == "https":
                 sock = ssl.create_default_context().wrap_socket(
@@ -90,7 +92,7 @@ def read_webpage(url: str) -> dict:
             favor_precision=True,
         )
         data = json.loads(extracted) if extracted else {}
-        if len(data.get("text", "").strip()) < 80 and get_settings().browser_enabled:
+        if len(data.get("text", "").strip()) < get_settings().web_min_text_chars and get_settings().browser_enabled:
             html = browser_html(final_url)
             extracted = trafilatura.extract(
                 html,
@@ -101,7 +103,7 @@ def read_webpage(url: str) -> dict:
                 favor_precision=True,
             )
             data = json.loads(extracted) if extracted else {}
-        if len(data.get("text", "").strip()) < 80:
+        if len(data.get("text", "").strip()) < get_settings().web_min_text_chars:
             raise AppError(
                 "网页未取得足够正文，可能需要登录或动态渲染；请补充正文或本地素材。", "partial_read"
             )
@@ -156,9 +158,9 @@ def browser_html(url: str) -> str:
                 context.route("**/*", guard)
                 context.route_web_socket("**/*", lambda websocket: websocket.close())
                 page = context.new_page()
-                page.goto(url, wait_until="networkidle", timeout=35000)
+                page.goto(url, wait_until="networkidle", timeout=get_settings().browser_timeout_seconds * 1000)
                 content = page.content()
-                if len(content.encode()) > 5_000_000:
+                if len(content.encode()) > get_settings().web_max_bytes:
                     raise AppError("渲染后的页面超过大小上限，请补充正文。", "too_large")
                 return content
             finally:

@@ -94,10 +94,9 @@ def test_access_token_and_media_cookie(client, monkeypatch):
     assert client.get("/api/files/" + file_id).status_code == 401
 
 
-def test_model_cache_and_conservative_budget(client, monkeypatch):
+def test_model_cache_and_conservative_budget(client, monkeypatch, configure):
     monkeypatch.setenv("LLM_API_KEY", "offline-test-only")
-    monkeypatch.setenv("LLM_MODEL", "test-model")
-    monkeypatch.setenv("MONTHLY_TOKEN_LIMIT", "100000")
+    configure(llm={"llm_model": "test-model", "monthly_token_limit": 100000})
     get_settings.cache_clear()
     saved = client.post("/api/records", json={"content": "预算验证"}).json()
     run_id = client.get("/api/records/" + saved["id"]).json()["runs"][0]["id"]
@@ -137,7 +136,7 @@ def test_model_cache_and_conservative_budget(client, monkeypatch):
     llm.invalidate_result(run_id, "test")
     llm.complete(run_id, "test", "测试", {"text": "原文"}, AnalysisDraft)
     assert len(called) == 2
-    monkeypatch.setenv("MONTHLY_TOKEN_LIMIT", "101")
+    configure(llm={"monthly_token_limit": 101})
     get_settings.cache_clear()
     with pytest.raises(BudgetExceeded):
         llm.complete(run_id, "test2", "另一次请求", {}, AnalysisDraft)

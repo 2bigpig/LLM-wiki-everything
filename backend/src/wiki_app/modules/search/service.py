@@ -37,11 +37,11 @@ def embed(texts: list[str]) -> list[list[float]]:
         return []
     settings = get_settings()
     if not settings.embedding_url:
-        raise ConfigurationRequired("请配置 EMBEDDING_URL，并启动 bge 容器。")
+        raise ConfigurationRequired("请检查 config.yaml 的模型服务配置，并启动 bge 容器。")
     started = time.monotonic()
     try:
         # 禁用系统代理，避免本机模型请求被代理转发；首次模型加载允许较长等待。
-        with httpx.Client(timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(settings.embedding_timeout_seconds, connect=settings.model_connect_timeout_seconds), trust_env=False) as client:
             response = client.post(
                 settings.embedding_url.rstrip("/") + "/embed",
                 json={"texts": texts, "model": settings.embedding_model},
@@ -64,7 +64,7 @@ def embed(texts: list[str]) -> list[list[float]]:
         logger.warning("BGE 调用失败 error=%s count=%d elapsed=%.2fs",
                        type(exc).__name__, len(texts), time.monotonic() - started)
         raise AppError(
-            "向量服务不可用或返回格式错误，请检查 EMBEDDING_URL 和 bge 容器日志。",
+            "向量服务不可用或返回格式错误，请检查 config.yaml 和 bge 容器日志。",
             "embedding_failed", 502,
         ) from exc
 
@@ -83,8 +83,9 @@ def index_sources(record_id: str, version: int):
             )
         )
     # 分批提交；中断后仅补齐尚未生成的向量。
-    for offset in range(0, len(sources), 8):
-        batch = sources[offset : offset + 8]
+    batch_size = get_settings().index_batch_size
+    for offset in range(0, len(sources), batch_size):
+        batch = sources[offset : offset + batch_size]
         vectors = embed([s.text for s in batch])
         with db.transaction() as session:
             for source, vector in zip(batch, vectors, strict=True):
@@ -92,8 +93,10 @@ def index_sources(record_id: str, version: int):
                 stored.embedding, stored.embedding_model = vector, get_settings().embedding_model
 
 
-def retrieve(query: str, limit: int = 12, exclude_record: str | None = None) -> list[dict]:
-    tokens = terms(query)[:16]
+def retrieve(query: str, limit: int | None = None, exclude_record: str | None = None) -> list[dict]:
+    settings = get_settings()
+    limit = settings.search_default_limit if limit is None else limit
+    tokens = terms(query)[:settings.search_max_terms]
     if not tokens:
         return []
     with db.SessionLocal() as session:
@@ -121,12 +124,12 @@ def retrieve(query: str, limit: int = 12, exclude_record: str | None = None) -> 
                     func.ts_rank_cd(document, query_vector).desc(),
                     Source.id,
                 )
-                .limit(40)
+                .limit(settings.search_candidates)
             )
         else:
             matches = [Source.search_text.contains(t, autoescape=True) for t in tokens]
             score = sum(case((match, 1), else_=0) for match in matches)
-            keyword = base.where(or_(*matches)).order_by(score.desc(), Source.id).limit(40)
+            keyword = base.where(or_(*matches)).order_by(score.desc(), Source.id).limit(settings.search_candidates)
         lists = [list(session.execute(keyword))]
         settings = get_settings()
         if settings.embeddings_enabled and db.engine.dialect.name == "postgresql":
@@ -137,7 +140,7 @@ def retrieve(query: str, limit: int = 12, exclude_record: str | None = None) -> 
                     Source.embedding.cosine_distance(vector),
                     Source.id,
                 )
-                .limit(40)
+                .limit(settings.search_candidates)
             )
             lists.append(list(session.execute(semantic)))
         fused: dict[str, dict] = {}
@@ -155,7 +158,7 @@ def retrieve(query: str, limit: int = 12, exclude_record: str | None = None) -> 
                         "score": 0.0,
                     },
                 )
-                hit["score"] += 1 / (60 + rank)
+                hit["score"] += 1 / (settings.search_rrf_k + rank)
         return sorted(fused.values(), key=lambda hit: (-hit["score"], hit["id"]))[:limit]
 
 

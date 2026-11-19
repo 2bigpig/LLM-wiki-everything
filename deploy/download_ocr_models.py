@@ -9,6 +9,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from wiki_app.config import get_settings
+
 
 def prepare() -> list[dict]:
     root = Path("/models")
@@ -16,18 +18,18 @@ def prepare() -> list[dict]:
         os.chown(root, 10001, 10001)
         os.setgid(10001)
         os.setuid(10001)
+    settings = get_settings()
     results = []
-    for name in ("PP-OCRv5_mobile_det", "PP-OCRv5_mobile_rec"):
-        target = root / "paddlex" / "official_models" / name
+    for name in (settings.ocr_detection_model, settings.ocr_recognition_model):
+        target = Path(settings.ocr_cache_dir) / "official_models" / name
         if not (target / "inference.pdiparams").is_file():
             if target.exists():
                 raise RuntimeError(f"已有不完整模型目录，请核对后重试：{target}")
-            url = ("https://paddle-model-ecology.bj.bcebos.com/paddlex/"
-                   f"official_inference_model/paddle3.0.0/{name}_infer.tar")
+            url = settings.ocr_download_base_url.rstrip("/") + f"/{name}_infer.tar"
             with tempfile.TemporaryDirectory(dir=root) as folder:
                 temporary = Path(folder)
                 archive = temporary / "model.tar"
-                with urllib.request.urlopen(url, timeout=120) as response, archive.open("wb") as output:
+                with urllib.request.urlopen(url, timeout=settings.model_download_timeout_seconds) as response, archive.open("wb") as output:
                     while block := response.read(1024 * 1024):
                         output.write(block)
                 unpacked = temporary / "unpacked"

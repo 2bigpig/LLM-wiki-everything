@@ -169,7 +169,7 @@ def record_detail(record_id: str):
                 select(Analysis)
                 .where(Analysis.record_id == record_id)
                 .order_by(Analysis.created_at.desc())
-                .limit(30)
+                .limit(get_settings().record_history_limit)
             )
         )
         runs = list(
@@ -177,7 +177,7 @@ def record_detail(record_id: str):
                 select(ProcessingRun)
                 .where(ProcessingRun.record_id == record_id)
                 .order_by(ProcessingRun.created_at.desc())
-                .limit(30)
+                .limit(get_settings().record_history_limit)
             )
         )
         sources = list(

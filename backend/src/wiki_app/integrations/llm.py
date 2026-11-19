@@ -32,7 +32,7 @@ def month_start() -> datetime:
 def complete(run_id: str, stage: str, instruction: str, payload: dict, schema: type[T]) -> T:
     settings = get_settings()
     if not settings.llm_configured:
-        raise ConfigurationRequired("内容已保存并读取。请配置 LLM_API_KEY 和 LLM_MODEL 后重试。")
+        raise ConfigurationRequired("内容已保存并读取。请配置 .env 的 LLM_API_KEY 和 YAML 的 llm_model 后重试。")
     user = json.dumps(
         {"任务": instruction, "资料": payload, "输出格式": schema.model_json_schema()},
         ensure_ascii=False,
@@ -94,7 +94,7 @@ def complete(run_id: str, stage: str, instruction: str, payload: dict, schema: t
         with OpenAI(
             api_key=settings.llm_api_key.get_secret_value(),
             base_url=settings.llm_base_url,
-            timeout=180,
+            timeout=settings.llm_timeout_seconds,
             max_retries=0,
         ) as client:
             response = client.chat.completions.create(

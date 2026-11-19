@@ -13,6 +13,7 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.postgres import PostgresSaver
 from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from test_workflow import fake_complete
 
@@ -24,7 +25,7 @@ from wiki_app.modules.processing import graph
 from wiki_app.modules.search import service as search
 
 
-def test_postgres_migration_checkpoint_search_and_queue(monkeypatch, tmp_path):
+def test_postgres_migration_checkpoint_search_and_queue(monkeypatch, tmp_path, configure):
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         pytest.skip("设置 TEST_DATABASE_URL 后验证 PostgreSQL、pgvector、检查点与任务队列")
@@ -37,10 +38,13 @@ def test_postgres_migration_checkpoint_search_and_queue(monkeypatch, tmp_path):
     params = dict(parse_qsl(parts.query))
     params["options"] = f"-csearch_path={schema},public"
     test_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), ""))
-    monkeypatch.setenv("DATABASE_URL", test_url)
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    parsed = make_url(test_url)
+    configure(database={"db_host": parsed.host, "db_port": parsed.port or 5432,
+                        "db_user": parsed.username, "db_name": parsed.database,
+                        "db_options": params["options"]},
+              models={"embeddings_enabled": False})
+    monkeypatch.setenv("POSTGRES_PASSWORD", parsed.password or "")
     monkeypatch.setenv("API_TOKEN", "")
-    monkeypatch.setenv("EMBEDDINGS_ENABLED", "false")
     get_settings.cache_clear()
     engine = db.build_engine(test_url)
     monkeypatch.setattr(db, "engine", engine)
@@ -68,11 +72,11 @@ def test_postgres_migration_checkpoint_search_and_queue(monkeypatch, tmp_path):
                 with db.transaction() as session:
                     source = session.scalar(select(Source))
                     source.embedding, source.embedding_model = vector, "BAAI/bge-m3"
-                monkeypatch.setenv("EMBEDDINGS_ENABLED", "true")
+                configure(models={"embeddings_enabled": True})
                 get_settings.cache_clear()
                 monkeypatch.setattr(search, "embed", lambda values: [vector for _ in values])
                 assert client.get("/api/search?q=相关性").json()["items"]
-                monkeypatch.setenv("EMBEDDINGS_ENABLED", "false")
+                configure(models={"embeddings_enabled": False})
                 get_settings.cache_clear()
 
                 # 使用本测试 schema 的独立 App，避免连接到其他开发会话的队列。

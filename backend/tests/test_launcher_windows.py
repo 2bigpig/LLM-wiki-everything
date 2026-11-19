@@ -66,11 +66,11 @@ def wait_until(predicate, process, log_path, timeout=35):
     pytest.fail("等待启动/任务完成超时：\n" + log_path.read_text(encoding="utf-8", errors="replace"))
 
 
-def wait_for_api(process, log_path):
+def wait_for_api(process, log_path, api_url):
     def ready():
         try:
             with httpx.Client(trust_env=False, timeout=1) as client:
-                return client.get("http://127.0.0.1:8000/healthz").status_code == 200
+                return client.get(api_url + "/healthz").status_code == 200
         except httpx.HTTPError:
             return False
 
@@ -99,26 +99,33 @@ def assert_exited(pid):
 
 
 @pytest.fixture
-def launcher_database(tmp_path):
+def launcher_database(tmp_path, configure):
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         pytest.skip("设置 TEST_DATABASE_URL 后执行真实 Windows 启动验收")
     with socket.socket() as listener:
-        try:
-            listener.bind(("127.0.0.1", 8000))
-        except OSError:
-            pytest.skip("8000 已被其他会话占用，不接管已有 API")
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
     # 独立数据库避免 search_path 回退到 public 的检查点或队列表，绝不消费业务库待办。
     admin_dsn = make_url(url).set(drivername="postgresql").render_as_string(hide_password=False)
     name = "wiki_launcher_test_" + uuid4().hex
     with psycopg.connect(admin_dsn, autocommit=True) as connection:
         connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-    environment = {
-        **os.environ, "DATABASE_URL": make_url(url).set(database=name).render_as_string(hide_password=False),
-        "DATA_DIR": str(tmp_path / "files"), "LOG_DIR": str(tmp_path / "logs"),
-        "API_TOKEN": "", "LLM_API_KEY": "", "LLM_MODEL": "", "EMBEDDINGS_ENABLED": "false",
-        "PYTHONUTF8": "1",
-    }
+    parsed = make_url(url).set(database=name)
+    path = configure(services={"api_port": port},
+                     database={"db_host": parsed.host, "db_port": parsed.port or 5432,
+                               "db_user": parsed.username, "db_name": parsed.database},
+                     paths={"data_dir": str(tmp_path / "files"), "log_dir": str(tmp_path / "logs")},
+                     models={"embeddings_enabled": False}, llm={"llm_model": ""})
+    class PrivateEnvironment(dict):
+        # pytest 在失败报告中展示 fixture repr，不能把继承的系统凭据一起输出。
+        def __repr__(self):
+            return "<isolated launcher environment; values hidden>"
+
+    environment = PrivateEnvironment({**os.environ, "WIKI_CONFIG_FILE": str(path),
+                   "POSTGRES_PASSWORD": parsed.password or "", "API_TOKEN": "", "LLM_API_KEY": "",
+                   "TEST_DATABASE_URL": parsed.render_as_string(hide_password=False), "PYTHONUTF8": "1",
+                   "WIKI_TEST_API_URL": f"http://127.0.0.1:{port}"})
     try:
         migration = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
@@ -134,17 +141,18 @@ def launcher_database(tmp_path):
 
 @pytest.mark.parametrize("reload", [False, True])
 def test_unified_start_queue_and_ctrl_c(launcher_database, tmp_path, reload):
+    api_url = launcher_database["WIKI_TEST_API_URL"]
     log_path = tmp_path / "launcher.log"
     with log_path.open("wb") as logfile:
         process = start_script(["-Reload"] if reload else [], launcher_database, logfile)
         try:
-            wait_for_api(process, log_path)
+            wait_for_api(process, log_path, api_url)
             with httpx.Client(trust_env=False, timeout=5) as client:
-                record = client.post("http://127.0.0.1:8000/api/records", json={
+                record = client.post(api_url + "/api/records", json={
                     "content": "Launcher integration: this record must be read by the real queue worker."
                 })
                 assert record.status_code == 201
-                url = "http://127.0.0.1:8000/api/records/" + record.json()["id"]
+                url = api_url + "/api/records/" + record.json()["id"]
                 wait_until(lambda: client.get(url).json()["status"] == "waiting_configuration",
                            process, log_path)
                 assert client.get(url).json()["sources"]
@@ -155,7 +163,7 @@ def test_unified_start_queue_and_ctrl_c(launcher_database, tmp_path, reload):
             assert "Worker 意外退出" not in output
             assert "Worker 已停止" in output
             # 正常停止应注销消费者，而不只是被 Job 强制回收。
-            dsn = make_url(launcher_database["DATABASE_URL"]).set(drivername="postgresql").render_as_string(hide_password=False)
+            dsn = make_url(launcher_database["TEST_DATABASE_URL"]).set(drivername="postgresql").render_as_string(hide_password=False)
             with psycopg.connect(dsn) as connection:
                 assert connection.execute("SELECT count(*) FROM procrastinate_workers").fetchone()[0] == 0
             if reload:
@@ -163,7 +171,7 @@ def test_unified_start_queue_and_ctrl_c(launcher_database, tmp_path, reload):
             for pid in re.findall(r"pid=(\d+)|Started (?:server|reloader) process \[(\d+)\]", output):
                 assert_exited(int(pid[0] or pid[1]))
             with socket.socket() as listener:
-                listener.bind(("127.0.0.1", 8000))
+                listener.bind(("127.0.0.1", int(api_url.rsplit(":", 1)[1])))
         finally:
             # 失败清理仅针对本测试创建的 PowerShell 进程树。
             if process.poll() is None:
@@ -178,7 +186,7 @@ def test_legacy_api_worker_commands(launcher_database, tmp_path):
             process = start_script(["-Service", role], launcher_database, logfile)
             try:
                 if role == "api":
-                    wait_for_api(process, log_path)
+                    wait_for_api(process, log_path, launcher_database["WIKI_TEST_API_URL"])
                 else:
                     wait_until(lambda: "Worker 启动" in log_path.read_text(encoding="utf-8", errors="replace"),
                                process, log_path)

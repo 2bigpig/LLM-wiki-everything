@@ -43,8 +43,7 @@ def test_reject_incompatible_embeddings(environment, monkeypatch, payload):
 
 
 def test_inference_request_id_and_shared_key(environment, monkeypatch):
-    monkeypatch.setenv("OCR_URL", "http://127.0.0.1:8101")
-    get_settings.cache_clear()
+    monkeypatch.setattr(get_settings().models, "ocr_enabled", True)
 
     def respond(request):
         assert request.url.path == "/infer"

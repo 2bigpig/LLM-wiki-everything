@@ -14,15 +14,20 @@ try {
     }
     & ./.venv/Scripts/python.exe -m pip install --cache-dir data/dev/pip-cache -c backend/constraints.txt -e './backend[dev]'
     if ($LASTEXITCODE -ne 0) { throw '本地 Python 依赖安装失败。' }
-    $ffmpeg = Get-ChildItem -LiteralPath 'data/tools/ffmpeg' -Filter ffmpeg.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    & ./.venv/Scripts/python.exe -m wiki_app.configuration migrate-env
+    if ($LASTEXITCODE -ne 0) { throw '旧环境迁移失败，原文件已保留。' }
+    $publicJson = & ./.venv/Scripts/python.exe -m wiki_app.configuration public
+    if ($LASTEXITCODE -ne 0) { throw '请检查 config.yaml 配置。' }
+    $public = $publicJson | ConvertFrom-Json
+    $ffmpeg = Get-ChildItem -LiteralPath $public.ffmpeg_dir -Filter ffmpeg.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $SkipFFmpeg -and -not $ffmpeg -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
         # 官方 Windows 便携包解压到项目内；中断时保留 zip，重试可重新下载。
-        New-Item -ItemType Directory -Force -Path 'data/tools/ffmpeg' | Out-Null
+        New-Item -ItemType Directory -Force -Path $public.ffmpeg_dir | Out-Null
         $archive = Join-Path $projectRoot 'data/tools/ffmpeg.zip'
         $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $archive
-        Expand-Archive -LiteralPath $archive -DestinationPath 'data/tools/ffmpeg' -Force
+        Invoke-WebRequest -UseBasicParsing -Uri $public.ffmpeg_download_url -TimeoutSec $public.ffmpeg_download_timeout_seconds -OutFile $archive
+        Expand-Archive -LiteralPath $archive -DestinationPath $public.ffmpeg_dir -Force
     }
-    Write-Host '本地环境已准备；接着启动 Docker 服务并运行 migrate、api、worker。'
+    Write-Host '本地环境已准备；接着运行 start-services.ps1、数据库 migrate 和 start-backend.ps1。'
 }
 finally { Pop-Location }

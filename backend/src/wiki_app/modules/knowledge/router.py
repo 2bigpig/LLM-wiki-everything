@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 
 from wiki_app import db
+from wiki_app.config import get_settings
 from wiki_app.errors import AppError
 from wiki_app.models import Source, WikiPage, WikiRevision
 from wiki_app.modules.knowledge.service import edit_personal, restore_page
@@ -31,7 +32,7 @@ def list_pages(q: str = Query(default="", max_length=200)):
         query = select(WikiPage).order_by(WikiPage.updated_at.desc())
         if q:
             query = query.where(WikiPage.title.contains(q, autoescape=True))
-        return {"items": [page_out(page) for page in session.scalars(query.limit(200))]}
+        return {"items": [page_out(page) for page in session.scalars(query.limit(get_settings().wiki_list_limit))]}
 
 
 @router.get("/wiki/{page_id}")
@@ -44,7 +45,7 @@ def page_detail(page_id: str):
                 select(WikiRevision)
                 .where(WikiRevision.page_id == page_id)
                 .order_by(WikiRevision.version.desc())
-                .limit(100)
+                .limit(get_settings().wiki_revision_limit)
             )
         )
         return {
