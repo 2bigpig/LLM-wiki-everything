@@ -70,6 +70,11 @@ def test_public_script_output_supports_windows_unicode_paths(configure, monkeypa
     ("search", {"index_batch_size": 65}),
     ("paths", {"hf_cache_dir": "/tmp/models"}),
     ("paths", {"container_data_dir": "/app"}),
+    ("graph", {"graph_max_nodes": 201}),
+    ("graph", {"graph_max_edges": 501}),
+    ("graph", {"graph_default_hops": 3, "graph_max_hops": 2}),
+    ("review", {"review_timezone": "do-not-log-secret"}),
+    ("review", {"review_daily_time": "25:30"}),
 ])
 def test_invalid_config_is_rejected_without_values(configure, section, values):
     configure(**{section: values})

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { api, date, kindLabels, type RecordItem, type WikiPage } from '../../api'
+import { api, date, kindLabels, type RecordItem, type Reviews, type WikiPage } from '../../api'
 import { composerOpen, refreshVersion } from '../../state'
 import Icon from '../../components/Icon.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
@@ -8,12 +8,14 @@ import StatusBadge from '../../components/StatusBadge.vue'
 const records = ref<RecordItem[]>([]), pages = ref<WikiPage[]>([]), total = ref(0)
 const kind = ref(''), status = ref(''), archived = ref(false), loading = ref(true), error = ref(''), offset = ref(0)
 const limit = 20
+const reviewCount = ref(0)
 const completed = computed(() => records.value.filter(r => r.status === 'completed').length)
 async function load(initial = false) {
   if (initial) loading.value = true
   try {
     const params = new URLSearchParams({ kind: kind.value, status: status.value, archived: String(archived.value), limit: String(limit), offset: String(offset.value) })
-    const [data, wiki] = await Promise.all([api<{ items: RecordItem[]; total: number }>('/records?' + params), api<{ items: WikiPage[] }>('/wiki')])
+    const [data, wiki, reviews] = await Promise.all([api<{ items: RecordItem[]; total: number }>('/records?' + params), api<{ items: WikiPage[] }>('/wiki'), api<Reviews>('/reviews').catch(() => null)])
+    reviewCount.value = reviews?.items.length || 0
     records.value = data.items; total.value = data.total; pages.value = wiki.items.slice(0, 4); error.value = ''
   } catch (e) { error.value = (e as Error).message }
   finally { loading.value = false }
@@ -27,6 +29,7 @@ function hostname(url: string | null) { try { return url ? new URL(url).hostname
 </script>
 <template>
   <div class="page-heading"><div><span class="eyebrow">YOUR KNOWLEDGE, CONNECTED</span><h1>让收藏，成为知识。</h1><p>留下重要的内容，发现它们之间的联系。</p></div><span class="heading-note"><span class="tiny-leaf">✳</span> 每一份积累，都有迹可循</span></div>
+  <RouterLink to="/reviews" class="review-entry paper"><Icon name="clock" :size="23" /><div><strong>今日回顾</strong><span>{{ reviewCount ? `已准备 ${reviewCount} 条值得重看的旧内容` : '沿着旧收藏，发现今天的新联系' }}</span></div><Icon name="arrow" :size="18" /></RouterLink>
   <div class="library-layout">
     <section>
       <div class="collection-toolbar"><div class="filter-tabs"><button v-for="tab in [{ id: '', label: '全部内容' }, { id: 'link', label: '链接' }, { id: 'text', label: '随手记' }, { id: 'file', label: '附件' }, { id: 'mixed', label: '混合' }]" :key="tab.id" :class="{ selected: kind === tab.id }" @click="kind = tab.id">{{ tab.label }}</button></div><select v-model="status" class="filter-select" aria-label="按处理状态筛选"><option value="">全部状态</option><option value="completed">整理完成</option><option value="queued">等待整理</option><option value="running">正在整理</option><option value="failed">处理失败</option><option value="waiting_configuration">等待配置</option><option value="budget_exceeded">额度不足</option><option value="cancelled">已停止</option></select></div>

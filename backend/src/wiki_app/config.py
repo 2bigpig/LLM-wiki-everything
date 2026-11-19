@@ -1,10 +1,12 @@
 """公共 YAML + 私密环境配置；所有入口复用校验，不回显密钥。"""
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal
 from urllib.parse import quote, urlencode
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from dotenv.parser import parse_stream
@@ -229,7 +231,52 @@ class Tools(Section):
     ffmpeg_download_timeout_seconds: Positive
 
 
+class Capture(Section):
+    capture_max_links: Annotated[int, Field(ge=1, le=100)]
+    capture_max_attachments: Annotated[int, Field(ge=1, le=100)]
+
+
+class Graph(Section):
+    graph_max_nodes: Annotated[int, Field(ge=10, le=200)]
+    graph_max_edges: Annotated[int, Field(ge=10, le=500)]
+    graph_default_hops: Annotated[int, Field(ge=1, le=3)]
+    graph_max_hops: Annotated[int, Field(ge=1, le=3)]
+
+
+class Review(Section):
+    review_enabled: bool
+    review_timezone: str
+    review_daily_time: str
+    review_daily_limit: Annotated[int, Field(ge=1, le=20)]
+    review_context_limit: Annotated[int, Field(ge=1, le=10)]
+    review_recent_days: Positive
+    review_min_age_days: Positive
+    review_cooldown_days: Positive
+    review_pause_days: Positive
+    review_check_interval_seconds: Seconds
+    review_insights_enabled: bool
+
+    @field_validator("review_timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("回顾时区无效") from None
+        return value
+
+    @field_validator("review_daily_time")
+    @classmethod
+    def valid_daily_time(cls, value):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+            raise ValueError("回顾时间必须为 HH:MM")
+        return value
+
+
 class PublicConfig(Section):
+    capture: Capture
+    graph: Graph
+    review: Review
     services: Services
     database: Database
     paths: Paths
@@ -248,6 +295,8 @@ class PublicConfig(Section):
     def check_relationships(self):
         """避免心跳误判、提前清理消费者，以及客户端提前放弃推理。"""
         checks = [
+            (self.graph.graph_default_hops <= self.graph.graph_max_hops,
+             "graph.graph_default_hops 不得超过 graph.graph_max_hops"),
             (self.worker.worker_heartbeat_seconds < self.worker.worker_stalled_seconds,
              "worker.worker_stalled_seconds 必须大于 worker.worker_heartbeat_seconds"),
             (self.launcher.stop_timeout_seconds > self.worker.worker_shutdown_seconds,

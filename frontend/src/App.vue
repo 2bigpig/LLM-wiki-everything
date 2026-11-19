@@ -12,10 +12,13 @@ const capabilities = ref<Capabilities | null>(null)
 const search = ref(''), searchInput = ref<HTMLInputElement>()
 const heading = computed(() => route.path.startsWith('/wiki') ? '知识 Wiki'
   : route.path.startsWith('/tasks') ? '整理进度' : route.path.startsWith('/settings') ? '偏好与服务'
-    : route.path.startsWith('/search') ? '找回知识' : '我的收藏')
+  : route.path.startsWith('/search') ? '找回知识' : route.path.startsWith('/graph') ? '知识图谱'
+    : route.path.startsWith('/reviews') ? '发现与回顾' : '我的收藏')
 const navigation = [
   { path: '/', label: '我的收藏', icon: 'library' }, { path: '/wiki', label: '知识 Wiki', icon: 'wiki' },
   { path: '/tasks', label: '整理进度', icon: 'tasks' },
+  { path: '/graph', label: '知识图谱', icon: 'branch' },
+  { path: '/reviews', label: '发现与回顾', icon: 'clock' },
 ]
 async function load() {
   try {

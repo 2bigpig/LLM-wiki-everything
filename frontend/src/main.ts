@@ -20,6 +20,8 @@ const router = createRouter({
     { path: '/tasks', component: TasksView },
     { path: '/settings', component: SettingsView },
     { path: '/search', component: SearchView },
+    { path: '/graph', component: () => import('./features/graph/GraphView.vue') },
+    { path: '/reviews', component: () => import('./features/review/ReviewsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior: (to) => to.hash ? { el: to.hash, top: 100 } : { top: 0 },

@@ -54,6 +54,8 @@ def check_environment():
             names = ("records", "attachments", "sources", "analyses", "relations", "wiki_pages",
                      "wiki_revisions", "model_calls", "processing_runs", "procrastinate_jobs",
                      "checkpoints", "checkpoint_blobs", "checkpoint_writes")
+            names += ("resources", "capture_inputs", "topics", "record_topics", "capture_insights",
+                      "review_batches", "review_cards", "review_preferences", "resource_review_states")
             with connection.cursor() as cursor:
                 missing = []
                 for name in names:

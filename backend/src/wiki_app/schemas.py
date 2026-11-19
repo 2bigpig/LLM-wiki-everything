@@ -63,6 +63,8 @@ class AnalysisDraft(StrictDraft):
     kind: Literal["summary", "learning", "interview", "note"]
     summary: str = Field(min_length=1, max_length=6000)
     topics: list[str] = Field(max_length=8)
+    # 旧分析可不含映射；没有映射时只关联记录，不猜测哪个附件支持主题。
+    topic_evidence: list["TopicEvidence"] = Field(default_factory=list, max_length=8)
     points: list[Point] = Field(min_length=1, max_length=30)
     observations: str = Field(default="", max_length=6000)
 
@@ -84,6 +86,42 @@ class RelationDraft(StrictDraft):
 
 class RelationsDraft(StrictDraft):
     relations: list[RelationDraft] = Field(max_length=6)
+
+
+class TopicEvidence(StrictDraft):
+    topic: str = Field(min_length=1, max_length=100)
+    source_ids: list[str] = Field(min_length=1, max_length=30)
+
+
+AnalysisDraft.model_rebuild()
+
+
+class InsightEvidence(StrictDraft):
+    source_id: str
+    quote: str = Field(min_length=4, max_length=1000)
+
+
+class InsightDraft(StrictDraft):
+    explanation: str = Field(default="", max_length=2000)
+    evidence: list[InsightEvidence] = Field(default_factory=list, max_length=6)
+
+
+class CapturePreview(BaseModel):
+    text: str = Field(default="", max_length=200000)
+
+
+class InsightFeedback(BaseModel):
+    feedback: Literal["suggested", "accepted", "ignored"]
+
+
+class ReviewFeedback(BaseModel):
+    action: Literal["seen", "helpful", "snooze", "inaccurate", "never"]
+
+
+class ReviewPreferenceEdit(BaseModel):
+    enabled: bool | None = None
+    pause: bool = False
+    resume: bool = False
 
 
 class WikiSection(StrictDraft):

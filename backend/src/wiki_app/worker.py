@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 
 import procrastinate
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -13,7 +14,7 @@ from sqlalchemy import select
 from wiki_app import db
 from wiki_app.config import get_settings
 from wiki_app.logging_config import configure_logging
-from wiki_app.models import ProcessingRun, now
+from wiki_app.models import CaptureInsight, ProcessingRun, Record, now
 from wiki_app.modules.processing.graph import execute_run
 
 logger = logging.getLogger("wiki_app.worker")
@@ -31,8 +32,19 @@ def process_run(run_id: str):
         execute_run(run_id, saver)
 
 
+@app.task(queue="pipeline", retry=procrastinate.RetryStrategy(
+    max_attempts=get_settings().worker_max_attempts, wait=get_settings().worker_retry_wait_seconds
+))
+def process_insight(insight_id: str):
+    """与正常整理共用 Worker；独立任务和状态确保解释失败不影响保存。"""
+    from wiki_app.modules.review.insights import generate_insight
+
+    generate_insight(insight_id)
+
+
 async def dispatch():
     settings = get_settings()
+    last_review_check = float("-inf")
     while True:
         try:
             # 按心跳判断停滞，不能因音视频耗时长而误重试仍在执行的任务。
@@ -61,6 +73,31 @@ async def dispatch():
                     ).defer_async(run_id=run_id)
                 except procrastinate.exceptions.AlreadyEnqueued:
                     pass
+            if settings.review_insights_enabled:
+                from wiki_app.modules.review.insights import prepare_insight
+
+                with db.SessionLocal() as session:
+                    missing = list(session.scalars(select(ProcessingRun.id).join(Record).where(
+                        ProcessingRun.status == "completed", ProcessingRun.version == Record.version,
+                        Record.archived.is_(False), ~select(CaptureInsight.id).where(
+                            CaptureInsight.run_id == ProcessingRun.id).exists()
+                    ).limit(settings.dispatch_batch_size)))
+                for run_id in missing:
+                    prepare_insight(run_id)
+                with db.SessionLocal() as session:
+                    insights = list(session.scalars(select(CaptureInsight.id).where(
+                        CaptureInsight.status == "pending").limit(settings.dispatch_batch_size)))
+                for identifier in insights:
+                    try:
+                        await process_insight.configure(lock=f"insight:{identifier}",
+                            queueing_lock=f"insight:{identifier}").defer_async(insight_id=identifier)
+                    except procrastinate.exceptions.AlreadyEnqueued:
+                        pass
+            if time.monotonic() - last_review_check >= settings.review_check_interval_seconds:
+                from wiki_app.modules.review.service import generate_daily
+
+                generate_daily()
+                last_review_check = time.monotonic()
         except Exception:
             logger.exception("队列派发失败，待办仍保存在数据库，将再次尝试")
         await asyncio.sleep(settings.dispatch_interval_seconds)

@@ -157,3 +157,84 @@ hr { border: 0; border-top: 1px solid #e9ecdf; margin: 27px 0; }.analysis-point 
 @media (max-width: 760px) { .sidebar { position: sticky; top: 0; width: 100%; height: 63px; padding: 10px 15px; display: flex; flex-direction: row; gap: 15px; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); }.brand { padding: 0; font-size: 18px; gap: 8px; }.brand-mark { width: 30px; height: 33px; font-size: 22px; border-radius: 8px 3px; }.brand small, .workspace-label, .nav-label, .sidebar-note, .service-card { display: none; }.sidebar nav { display: flex; gap: 3px; margin-left: auto; }.nav-item { padding: 8px; margin: 0; font-size: 11px; gap: 6px; }.nav-item svg { width: 17px; height: 17px; }.nav-count { display: none; }.sidebar-bottom { margin: 0; }.sidebar-bottom .nav-item span { display: none; }.main-shell { margin-left: 0; }.topbar { position: static; height: 65px; padding: 0 18px; }.breadcrumb { display: none; }.global-search { margin-left: 0; flex: 1; width: auto; }.global-search kbd { display: none; }.page { padding: 27px 18px 40px; }.page-heading { margin-bottom: 25px; }.page-heading h1 { font-size: 27px; }.page-heading .eyebrow { font-size: 8px; }.page-heading p { font-size: 11px; }.record-grid { gap: 12px; }.record-card { padding: 17px 15px 0; min-height: 250px; }.record-meta { flex-wrap: wrap; }.record-meta time { font-size: 8px; }.record-card h2 { font-size: 14px; }.card-excerpt { -webkit-line-clamp: 4; line-clamp: 4; }.source-host { display: none; }.filter-tabs { gap: 0; }.filter-tabs button { padding: 7px 9px; }.filter-select { max-width: 90px; }.reading-paper { padding: 23px; }.detail-heading h1 { font-size: 26px; }.detail-heading > .button { padding: 7px; font-size: 10px; flex-shrink: 0; }.detail-layout > .context-column { grid-template-columns: 1fr; gap: 0; }.wiki-grid { gap: 13px; }.wiki-card { padding: 18px; }.settings-layout { grid-template-columns: 1fr; }.capability-grid { grid-template-columns: 1fr; }.heading-counter { font-size: 28px; flex-shrink: 0; }.heading-counter small { font-size: 9px; }.task-table th, .task-table td { padding: 15px 12px; }.task-table th:nth-child(2), .task-table td:nth-child(2) { display: none; }.settings-card { padding: 22px; }.page-footer { padding: 20px 18px; font-size: 8px; }.page-footer span:last-child { display: none; }.compose-dialog form { padding: 22px 20px 0; }.dialog-footer { flex-wrap: wrap; }.form-grid { grid-template-columns: 1fr; gap: 0; }.large-search { padding: 10px 12px; gap: 8px; }.large-search input { font-size: 11px; }.large-search .button { font-size: 10px; padding: 8px; } }
 @media (max-width: 430px) { .sidebar { gap: 5px; }.brand > span:last-child { display: none; }.record-grid, .wiki-grid { grid-template-columns: 1fr; }.record-card { min-height: 220px; padding: 20px 20px 0; }.source-host { display: flex; }.record-meta time { font-size: 9px; }.record-card h2 { font-size: 16px; }.card-excerpt { -webkit-line-clamp: 3; line-clamp: 3; }.filter-tabs button { padding: 6px 7px; font-size: 10px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* 统一录入保留一个主输入；辅助说明和文件列表不改变用户的输入方式。 */
+.capture-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.capture-fields textarea { min-height: 180px; }
+.capture-tools { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin: 12px 0; }
+.capture-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.capture-files { list-style: none; padding: 0; margin: 12px 0; }
+.capture-files li { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid #e5eadc; }
+.capture-files li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.capture-files small { color: #83936f; font-size: 10px; }
+.capture-links { display: grid; gap: 10px; padding: 15px; background: #f3f6ed; border-radius: 6px; }
+.capture-links label { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; overflow-wrap: anywhere; min-width: 0; }
+.capture-links label > span { min-width: 0; }
+.capture-options { margin: 20px 0; }
+.capture-options summary { cursor: pointer; font-size: 12px; color: #657b54; margin-bottom: 15px; }
+.review-entry { display: flex; gap: 17px; align-items: center; padding: 17px 22px; margin-bottom: 24px; color: #617c4b; }
+.review-entry > div { flex: 1; }
+.review-entry strong { display: block; font-size: 13px; }
+.review-entry span { display: block; margin-top: 5px; font-size: 11px; color: #8a987e; }
+.source-inputs { margin-bottom: 20px; padding: 22px 26px; }
+.source-inputs h2 { font-family: var(--serif); font-size: 20px; margin: 0; }
+.source-input { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-top: 1px solid #e5eadc; }
+.source-input > div { flex: 1; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.source-input small { display: block; margin-top: 5px; color: #89967b; }
+.source-input p { margin: 6px 0 0; font-size: 11px; }
+.capture-history { display: grid; gap: 9px; margin-bottom: 20px; }
+.capture-history a { display: block; text-decoration: underline; overflow-wrap: anywhere; }
+.context-hint { padding-top: 14px; border-top: 1px solid #e6ebdf; margin-top: 14px; }
+.context-hint a, .context-hint strong { display: block; margin-top: 6px; }
+.context-hint p, .side-card > p { font-size: 12px; line-height: 1.9; overflow-wrap: anywhere; }
+
+/* 图谱有界渲染；关系列表与图形共享数据，提供键盘和窄屏入口。 */
+.graph-toolbar { display: flex; gap: 12px; align-items: flex-end; padding: 18px 22px; flex-wrap: wrap; }
+.graph-toolbar .field { margin: 0; flex: 1; min-width: 120px; }
+.graph-options { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 11px; margin: 18px 0; }
+.graph-options label { display: inline-flex; gap: 6px; align-items: center; }
+.graph-options .button-row { margin-left: auto; }
+.graph-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 20px; }
+.graph-main { padding: 20px; min-width: 0; }
+.graph-legend { margin: 0 0 12px; font-size: 10px; }
+.graph-canvas { height: 560px; width: 100%; background: #f9fbf4; border-radius: 6px; }
+.graph-detail { padding: 24px; min-width: 0; align-self: start; }
+.graph-detail h2 { font: 20px/1.6 var(--serif); overflow-wrap: anywhere; }
+.graph-detail p, .graph-detail blockquote { font-size: 12px; line-height: 1.9; overflow-wrap: anywhere; }
+.graph-detail .original-text { max-height: 360px; overflow: auto; }
+.graph-detail .button-row { flex-wrap: wrap; }
+.graph-node-button, .graph-edge-button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 0; text-align: left; border: 0; border-bottom: 1px solid #e4eadb; background: transparent; color: #556a45; cursor: pointer; }
+.graph-node-button > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.graph-edge-button { display: grid; gap: 6px; font-size: 12px; }
+.graph-edge-button span { overflow-wrap: anywhere; }
+.graph-edge-button small { color: #8c9b7e; }
+.graph-list h2 { font: 18px var(--serif); margin-top: 25px; }
+.capture-timeline { padding-left: 18px; }
+.capture-timeline li { padding: 0 0 20px 7px; font-size: 12px; }
+.capture-timeline time { display: block; color: #8a987e; font-size: 10px; margin-bottom: 7px; }
+.capture-timeline a { display: block; overflow-wrap: anywhere; }
+
+.review-preferences { padding: 22px 25px; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.review-preferences strong { font-size: 14px; }.review-preferences p { font-size: 11px; line-height: 1.9; }
+.review-preferences .button-row { flex-wrap: wrap; }.review-preferences label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.review-grid { display: grid; gap: 20px; }.review-card { padding: 25px 28px; }
+.review-card h2 { font: 22px/1.6 var(--serif); margin: 14px 0; overflow-wrap: anywhere; }
+.review-card > p { font-size: 13px; line-height: 2; overflow-wrap: anywhere; }
+.review-card .button-row, .review-actions { display: flex; flex-wrap: wrap; gap: 14px; }
+.review-actions { border-top: 1px solid #e6ebdc; padding-top: 18px; margin-top: 22px; align-items: center; }
+.blocked-resources { padding: 20px 25px; margin-top: 25px; font-size: 12px; }
+.blocked-resources summary { cursor: pointer; }.blocked-resources > div { display: flex; gap: 15px; align-items: center; margin-top: 15px; }
+.blocked-resources > div > span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 1100px) { .graph-layout { grid-template-columns: minmax(0, 1fr); }.graph-detail { width: 100%; }.graph-canvas { height: 440px; } }
+@media (max-width: 640px) {
+  /* 手机导航保持完整标签，在导航区域内滚动，避免文字被挤成竖排。 */
+  .sidebar nav { flex: 1; min-width: 0; overflow-x: auto; }
+  .sidebar nav .nav-item { flex-shrink: 0; white-space: nowrap; flex-direction: column; gap: 2px; padding: 3px 6px; }
+  .sidebar .brand, .sidebar-bottom { flex-shrink: 0; }
+  .capture-tools { gap: 9px; }.capture-tools .subtle { font-size: 10px; }
+  .source-inputs { padding: 18px; }.source-input { flex-wrap: wrap; }.source-input > div { flex-basis: calc(100% - 35px); }
+  .graph-toolbar { padding: 16px; }.graph-toolbar .field { min-width: 100px; }
+  .graph-main, .graph-detail { padding: 17px; }.graph-canvas { height: 360px; }
+  .review-preferences { display: block; padding: 20px; }.review-preferences .button-row { margin-top: 15px; }
+  .review-card { padding: 20px; }.review-card h2 { font-size: 19px; }
+}

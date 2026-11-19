@@ -12,7 +12,7 @@ from sqlalchemy import case, func, literal_column, or_, select
 from wiki_app import db
 from wiki_app.config import get_settings
 from wiki_app.errors import AppError, ConfigurationRequired
-from wiki_app.models import Analysis, Record, Source
+from wiki_app.models import Analysis, CaptureInput, Record, Source
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +100,22 @@ def retrieve(query: str, limit: int | None = None, exclude_record: str | None = 
     if not tokens:
         return []
     with db.SessionLocal() as session:
+        # 先在数据库中选出同资源、同原文的一个代表，再做关键词/向量召回。
+        # 原始事件与备注仍独立持久化，检索不把相同原文当成多份证据。
+        identity = func.coalesce(CaptureInput.resource_id, Source.id)
+        representatives = select(Source.id.label("source_id"), func.row_number().over(
+            partition_by=(identity, Source.text), order_by=(Record.created_at.desc(), Source.id)
+        ).label("position")).join(Record).outerjoin(CaptureInput, CaptureInput.id == Source.input_id).where(
+            Record.archived.is_(False), Source.version == Record.version)
+        if exclude_record:
+            representatives = representatives.where(Source.record_id != exclude_record)
+        representatives = representatives.subquery()
         base = (
             select(Source, Record)
             .join(Record, Record.id == Source.record_id)
+            .join(representatives, representatives.c.source_id == Source.id)
             .where(
+                representatives.c.position == 1,
                 Record.archived.is_(False),
                 Source.version == Record.version,
             )

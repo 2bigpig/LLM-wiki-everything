@@ -20,8 +20,11 @@ from wiki_app.errors import AppError
 from wiki_app.integrations.llm import month_start
 from wiki_app.logging_config import configure_logging
 from wiki_app.models import ModelCall, ProcessingRun, Record, Relation, WikiPage
+from wiki_app.modules.capture.router import router as capture_router
+from wiki_app.modules.graph.router import router as graph_router
 from wiki_app.modules.knowledge.router import router as wiki_router
 from wiki_app.modules.library.router import router as library_router
+from wiki_app.modules.review.router import router as review_router
 from wiki_app.modules.search.service import retrieve
 from wiki_app.presentation import columns, run_out
 
@@ -239,4 +242,7 @@ def search(q: str = Query(min_length=1, max_length=300)):
             "semantic": get_settings().embeddings_enabled}
 
 
+api.include_router(capture_router)
+api.include_router(graph_router)
+api.include_router(review_router)
 app.include_router(api)

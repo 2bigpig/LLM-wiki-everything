@@ -1,6 +1,5 @@
 """记录修改使用版本检查；历史读取片段始终保留给旧引用使用。"""
 
-import hashlib
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
@@ -49,31 +48,11 @@ def queue_run(session: Session, record: Record) -> ProcessingRun:
 
 
 def create_record(session: Session, data: RecordCreate, client_key: str | None = None) -> Record:
-    if client_key:
-        existing = session.scalar(select(Record).where(Record.client_key == client_key))
-        if existing:
-            return existing
-    url = normalize_url(data.url) if data.url else None
-    url_key = hashlib.sha256(url.encode()).hexdigest() if url else None
-    if url:
-        existing = session.scalar(select(Record).where(Record.url_key == url_key))
-        if existing:
-            raise AppError(f"该链接已保存，记录 ID：{existing.id}", "duplicate", 409)
-    record = Record(
-        client_key=client_key,
-        kind="link" if url else "text",
-        title=data.title.strip()
-        or (data.content.strip().splitlines()[0][:100] if data.content.strip() else url[:200]),
-        content=data.content.strip(),
-        url=url,
-        url_key=url_key,
-        notes=data.notes,
-        purpose=data.purpose,
-    )
-    session.add(record)
-    session.flush()
-    queue_run(session, record)
-    return record
+    # 延迟导入防止 URL 规范化规则与统一录入服务形成循环导入。
+    from wiki_app.modules.capture.service import create_capture
+
+    return create_capture(session, text=data.content, url=data.url, title=data.title,
+                          notes=data.notes, purpose=data.purpose, client_key=client_key)
 
 
 def get_record(session: Session, record_id: str, lock: bool = False) -> Record:
@@ -93,12 +72,23 @@ def edit_record(session: Session, record_id: str, data: RecordEdit) -> Record:
         raise AppError("短文内容不能为空。")
     if record.archived:
         raise AppError("请先恢复归档记录，再修改内容。", "archived", 409)
+    from wiki_app.modules.capture.rules import digest, recognize
+    from wiki_app.modules.capture.service import current_inputs, ensure_inputs
+
+    previous = recognize(record.content)
+    legacy_url = record.url if record.url and all(link["url"] != record.url for link in previous["links"]) else None
+    excluded = [item.url for item in current_inputs(session, record) if not item.included and item.url]
     cancel_runs(session, record)
-    record.title, record.content = data.title.strip(), data.content.strip()
+    record.title, record.content = data.title.strip(), data.content
     record.notes, record.purpose = data.notes, data.purpose
     record.version += 1
     record.coverage = {}
     record.updated_at = now()
+    links = recognize(record.content)["links"]
+    record.url = links[0]["url"] if links else legacy_url
+    record.url_key = digest(record.url) if record.url else None
+    session.flush()
+    ensure_inputs(session, record, excluded)
     queue_run(session, record)
     return record
 
@@ -130,6 +120,13 @@ def retry_record(session: Session, record_id: str, fresh: bool = False) -> Proce
     if last and last.status in ACTIVE:
         raise AppError("这条记录正在排队或处理中。", "already_running", 409)
     if last and not fresh and last.status != "completed":
+        from wiki_app.models import CaptureInput
+
+        for item in session.scalars(select(CaptureInput).where(
+            CaptureInput.record_id == record.id, CaptureInput.version == record.version,
+            CaptureInput.status == "failed", CaptureInput.included.is_(True)
+        )):
+            item.status, item.error, item.error_code = "queued", None, None
         last.status, last.error, last.finished_at = "queued", None, None
         record.status = "queued"
         return last

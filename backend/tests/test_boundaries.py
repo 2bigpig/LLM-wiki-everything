@@ -27,7 +27,8 @@ def test_idempotent_submission_and_normalized_link(client):
         client.post("/api/records", json={"url": "https://example.com/a?utm_source=x"}).status_code
         == 201
     )
-    assert client.post("/api/records", json={"url": "https://example.com/a"}).status_code == 409
+    # 不同主动提交是不同收藏事件，规范化后的相同内容由资源表关联。
+    assert client.post("/api/records", json={"url": "https://example.com/a"}).status_code == 201
     assert (
         normalize_url("https://EXAMPLE.com:443/a?x=1&utm_source=y#section")
         == "https://example.com/a?x=1"

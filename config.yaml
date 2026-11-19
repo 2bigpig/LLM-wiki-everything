@@ -1,5 +1,29 @@
 # 普通参数唯一入口；密钥只放 .env。修改后重启对应服务。
 # 时间默认单位为秒；相对本机路径以本文件目录为基准。
+capture:
+  # 一次主动提交的自动读取与附件数量；总上传大小仍由 processing 限制。
+  capture_max_links: 10
+  capture_max_attachments: 10
+graph:
+  # 首版硬上限 200 节点 / 500 边；默认一跳，最多三跳，超限提示筛选。
+  graph_max_nodes: 200
+  graph_max_edges: 500
+  graph_default_hops: 1
+  graph_max_hops: 3
+review:
+  # 每日检查仅补当天，不追补停机期间；偏好与反馈另存数据库。
+  review_enabled: true
+  review_timezone: Asia/Shanghai
+  review_daily_time: '09:00'
+  review_daily_limit: 3
+  review_context_limit: 2
+  review_recent_days: 7
+  # 旧资料门槛、展示后的冷却期、用户暂停长度，单位均为天。
+  review_min_age_days: 14
+  review_cooldown_days: 7
+  review_pause_days: 7
+  review_check_interval_seconds: 60
+  review_insights_enabled: true
 services:
   api_host: 127.0.0.1
   api_port: 8000

@@ -33,6 +33,53 @@ export interface WikiPage {
 export interface RecordDetail extends RecordItem {
   sources: Source[]; analyses: Analysis[]; runs: Run[]; relations: Relation[]
   attachments: Attachment[]; pages: Pick<WikiPage, 'id' | 'title' | 'version' | 'updated_at'>[]
+  inputs: CaptureInput[]; history_matches: CaptureHistory[]
+  context_suggestions: ContextSuggestion[]; insights: CaptureInsight[]
+}
+
+export interface CaptureInput {
+  id: string; resource_id: string; version: number; kind: string; label: string
+  origin: string
+  url: string | null; attachment_id: string | null; included: boolean; status: string
+  error: string | null; details: string[]; fetched_at: string | null
+}
+export interface CaptureHistory {
+  resource_id: string; record_id: string; title: string; created_at: string; archived: boolean
+}
+export interface ContextSuggestion {
+  record_id: string; title: string; relation_id: string; explanation: string
+  evidence: { source_id: string; quote: string }[]; feedback: string
+}
+export interface CaptureInsight {
+  id: string; version: number; status: string; explanation: string; feedback: string
+  evidence: { source_id: string; quote: string }[]; error: string | null; stale: boolean
+}
+export interface Recognition {
+  links: { url: string; kind: string }[]; body: string; warnings: string[]
+  max_links: number; max_attachments: number; max_upload_mb: number
+}
+export interface GraphNode { id: string; kind: string; label: string; href: string }
+export interface GraphEdge {
+  id: string; source: string; target: string; kind: string; label: string; explanation: string
+  reference_id: string | null; evidence: { source_id: string; quote?: string; version: number; record_id: string }[]; feedback: string
+}
+export interface GraphData {
+  nodes: GraphNode[]; edges: GraphEdge[]; truncated: boolean
+  limits: { nodes: number; edges: number; max_hops: number; hops: number }
+}
+export interface GraphDetail {
+  node: GraphNode; timeline: RecordItem[]; truncated: boolean
+  record?: RecordItem; content?: string; url?: string
+}
+export interface ReviewCard {
+  id: string; resource_id: string; record_id: string; title: string; kind: string
+  reason: string; feedback: string; shown_at: string | null
+  evidence: { sources?: { source_id: string; quote?: string }[]; captures?: number }
+}
+export interface Reviews {
+  items: ReviewCard[]; preferences: { enabled: boolean; paused_until: string | null }
+  timezone: string; daily_time: string; daily_limit: number; configured_enabled: boolean
+  pause_days: number
 }
 export interface Capabilities {
   llm: boolean; llm_model: string; ocr: boolean; asr: boolean; embeddings: boolean

@@ -13,7 +13,18 @@ from wiki_app.errors import AppError, BudgetExceeded, ConfigurationRequired
 from wiki_app.integrations import llm
 from wiki_app.integrations.extraction import extract_record
 from wiki_app.integrations.resources import WIKI_LOCK, advisory_slot
-from wiki_app.models import Analysis, Attachment, ProcessingRun, Record, Source, WikiPage, now
+from wiki_app.models import (
+    Analysis,
+    Attachment,
+    CaptureInput,
+    ProcessingRun,
+    Record,
+    Source,
+    WikiPage,
+    now,
+)
+from wiki_app.modules.capture.service import current_inputs
+from wiki_app.modules.capture.topics import sync_topics, validate_topic_evidence
 from wiki_app.modules.knowledge.service import apply_wiki, save_relation, title_key
 from wiki_app.modules.search.service import index_sources, retrieve, searchable
 from wiki_app.schemas import AnalysisDraft, RelationsDraft, WikiDrafts
@@ -56,13 +67,34 @@ def sources_for(session, record_id: str, version: int) -> list[Source]:
 
 
 def source_payload(sources: list[Source]) -> list[dict]:
-    return [{"id": s.id, "text": s.text, "locator": s.locator, "method": s.method} for s in sources]
+    input_ids = {source.input_id for source in sources if source.input_id}
+    with db.SessionLocal() as session:
+        resources = dict(session.execute(select(CaptureInput.id, CaptureInput.resource_id).where(
+            CaptureInput.id.in_(input_ids))).all())
+    result, shared = [], {}
+    for source in sources:
+        key = (resources.get(source.input_id), source.text)
+        if key[0] is not None and key in shared:
+            shared[key].setdefault("equivalent_source_ids", []).append(source.id)
+            continue
+        value = {"id": source.id, "text": source.text, "locator": source.locator, "method": source.method}
+        result.append(value)
+        if key[0] is not None:
+            shared[key] = value
+    return result
 
 
 def extract_node(state: RunState):
     with db.transaction() as session:
         run, record = context(session, state["run_id"], "extract")
-        if sources_for(session, record.id, run.version):
+        existing_sources = sources_for(session, record.id, run.version)
+        inputs = current_inputs(session, record)
+        if existing_sources and not any(item.included and item.status == "queued" for item in inputs):
+            if not record.coverage.get("status"):
+                errors = [f"{item.label}：{item.error}" for item in inputs if item.status == "failed"]
+                details = [detail for item in inputs for detail in item.details] + errors
+                record.coverage = {"status": "partial" if details else "complete",
+                                   "details": details, "source_count": len(existing_sources)}
             return {}
         attachments = list(
             session.scalars(select(Attachment).where(Attachment.record_id == record.id))
@@ -96,6 +128,8 @@ def extract_node(state: RunState):
 def analyze_node(state: RunState):
     with db.transaction() as session:
         run, record = context(session, state["run_id"], "analyze")
+        if record.coverage.get("status") == "saved_only":
+            return {}
         if session.scalar(select(Analysis.id).where(Analysis.run_id == run.id)):
             return {}
         sources = sources_for(session, record.id, run.version)
@@ -115,7 +149,8 @@ def analyze_node(state: RunState):
             f"analyze:{index}",
             "整理本组资料。根据内容和用户用途选择摘要、学习整理、面试复盘或随笔整理。"
             "面试整理问题与回答，保留引用；不要编造评分。用户自述保留身份。"
-            "每个要点必须引用给定 source_ids；AI 推断单独写 observations。",
+            "每个要点必须引用给定 source_ids；AI 推断单独写 observations。"
+            "可用 topic_evidence 为每个主题给出支持它的 source_ids；不要把混合输入的主题套给所有附件。",
             {
                 "title": record.title,
                 "purpose": record.purpose,
@@ -126,6 +161,7 @@ def analyze_node(state: RunState):
             AnalysisDraft,
         )
         provided = {s.id for s in group}
+        validate_topic_evidence(result, provided)
         if any(sid not in provided for point in result.points for sid in point.source_ids):
             llm.invalidate_result(run.id, f"analyze:{index}")
             raise AppError("分析引用了未提供的片段，结果未保存。", "invalid_evidence", 502)
@@ -142,27 +178,31 @@ def analyze_node(state: RunState):
         )
     )
     provided = {s.id for s in sources}
+    validate_topic_evidence(result, provided)
     if any(sid not in provided for point in result.points for sid in point.source_ids):
         llm.invalidate_result(run.id, "analyze:merge")
         raise AppError("综合分析引用不合法，结果未保存。", "invalid_evidence", 502)
     with db.transaction() as session:
         context(session, run.id)
         if not session.scalar(select(Analysis.id).where(Analysis.run_id == run.id)):
-            session.add(
-                Analysis(
+            analysis = Analysis(
                     run_id=run.id,
                     record_id=record.id,
                     version=run.version,
                     model=get_settings().llm_model,
                     **result.model_dump(),
                 )
-            )
+            session.add(analysis)
+            session.flush()
+            sync_topics(session, analysis)
     return {}
 
 
 def relate_node(state: RunState):
     with db.transaction() as session:
         run, record = context(session, state["run_id"], "relate")
+        if record.coverage.get("status") == "saved_only":
+            return {}
         sources = sources_for(session, record.id, run.version)
         analysis = session.scalar(select(Analysis).where(Analysis.run_id == run.id))
     index_sources(record.id, run.version)
@@ -209,6 +249,10 @@ def wiki_node(state: RunState):
 def update_wiki_node(state: RunState):
     with db.transaction() as session:
         run, record = context(session, state["run_id"], "wiki")
+        if record.coverage.get("status") == "saved_only":
+            run.status, run.stage, run.finished_at = "completed", "completed", now()
+            record.status = "completed"
+            return {}
         analysis = session.scalar(select(Analysis).where(Analysis.run_id == run.id))
         sources = sources_for(session, record.id, run.version)
         keys = {title_key(topic) for topic in analysis.topics}
@@ -248,7 +292,8 @@ def update_wiki_node(state: RunState):
         "返回需要创建或更新的完整页面 sections，每节都要给出来源 ID。"
         "更新已有页面时保留仍然有效的旧知识、不同观点及其引用，page_id 必须来自 existing_pages。"
         "新页 page_id 为 null。随笔不含可复用知识时可返回空 pages 并解释 reason。"
-        "不要创建空泛的大主题，不要改写或输出用户个人笔记。最多 3 页。",
+        "不要创建空泛的大主题，不要改写或输出用户个人笔记。最多 3 页。"
+        "equivalent_source_ids 表示同一资源相同原文的引用别名，不是多份独立证据。",
         {
             "analysis": {
                 "summary": analysis.summary,
@@ -317,6 +362,13 @@ def execute_run(run_id: str, checkpointer):
         saved = graph.get_state(config)
         # 恢复时传 None；重新传入初始输入会启动新的执行路径。
         graph.invoke(None if saved.values else {"run_id": run_id}, config=config, durability="sync")
+        from wiki_app.modules.review.insights import prepare_insight
+
+        try:
+            prepare_insight(run_id)
+        except Exception as exc:
+            # 可选解释的排队不反向改变已完成的收藏，派发器会补齐缺失待办。
+            logger.warning("再次关注解释暂未排队 run_id=%s error=%s", run_id, type(exc).__name__)
         logger.info("任务执行结束 run_id=%s", run_id)
     except Exception as exc:
         status = (

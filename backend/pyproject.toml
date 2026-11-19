@@ -12,6 +12,7 @@ dependencies = [
   "sqlalchemy>=2.0.38,<2.1", "psycopg[binary,pool]>=3.2,<4",
   "alembic>=1.15,<2", "pydantic-settings>=2.8,<3",
   "PyYAML>=6.0.2,<7", "python-dotenv>=1,<2",
+  "tzdata>=2026.6,<2027",
   "langgraph>=1.0,<2", "langgraph-checkpoint-postgres>=3,<4",
   "procrastinate>=3,<4", "pgvector>=0.4,<1",
   "python-multipart>=0.0.20,<1", "httpx>=0.28,<1",

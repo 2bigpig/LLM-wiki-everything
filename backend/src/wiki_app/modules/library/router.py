@@ -1,9 +1,6 @@
 """收藏接口：保存与任务待办同事务，上传失败清理已写入的临时文件。"""
 
-import hashlib
-from pathlib import Path
 from typing import Annotated
-from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, Header, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -13,8 +10,19 @@ from sqlalchemy.exc import IntegrityError
 from wiki_app import db
 from wiki_app.config import get_settings
 from wiki_app.errors import AppError
-from wiki_app.integrations.storage import file_type, storage_path
-from wiki_app.models import Analysis, Attachment, ProcessingRun, Record, Relation, Source, WikiPage
+from wiki_app.integrations.storage import storage_path
+from wiki_app.models import (
+    Analysis,
+    Attachment,
+    CaptureInsight,
+    ProcessingRun,
+    Record,
+    Relation,
+    Source,
+    WikiPage,
+)
+from wiki_app.modules.capture.service import current_inputs, history_matches, input_out
+from wiki_app.modules.graph.service import valid_evidence
 from wiki_app.modules.library.service import (
     cancel_runs,
     create_record,
@@ -23,6 +31,7 @@ from wiki_app.modules.library.service import (
     queue_run,
     retry_record,
 )
+from wiki_app.modules.review.insights import context_suggestions
 from wiki_app.modules.search.service import latest_analyses
 from wiki_app.presentation import (
     analysis_out,
@@ -87,6 +96,11 @@ def save_record(data: RecordCreate, idempotency_key: ClientKey = None):
         with db.transaction() as session:
             return record_out(create_record(session, data, idempotency_key))
     except IntegrityError as exc:
+        if idempotency_key:
+            with db.SessionLocal() as session:
+                existing = session.scalar(select(Record).where(Record.client_key == idempotency_key))
+                if existing:
+                    return record_out(existing)
         raise AppError("相同链接或提交已保存，请刷新收藏列表。", "duplicate", 409) from exc
 
 
@@ -99,65 +113,10 @@ async def upload_record(
     purpose: Annotated[Purpose, Form()] = "auto",
     idempotency_key: ClientKey = None,
 ):
-    if len(files) > 10:
-        raise AppError("一次最多上传 10 个文件。")
-    if idempotency_key:
-        with db.SessionLocal() as session:
-            existing = session.scalar(select(Record).where(Record.client_key == idempotency_key))
-            if existing:
-                return record_out(existing)
-    saved, written, total = [], [], 0
-    try:
-        for upload in files:
-            filename = Path((upload.filename or "file").replace("\\", "/")).name[-240:]
-            suffix, media_type = file_type(filename)
-            key = f"uploads/{uuid4()}{suffix}"
-            path = storage_path(key)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            written.append(path)
-            digest, size = hashlib.sha256(), 0
-            with path.open("wb") as output:
-                while block := await upload.read(1024 * 1024):
-                    size += len(block)
-                    total += len(block)
-                    if total > get_settings().max_upload_mb * 1024 * 1024:
-                        raise AppError("本次上传超过配置的大小上限。", "too_large", 413)
-                    digest.update(block)
-                    output.write(block)
-            if not size:
-                raise AppError(f"{filename} 是空文件。")
-            saved.append(
-                {
-                    "filename": filename,
-                    "storage_key": key,
-                    "media_type": media_type,
-                    "size": size,
-                    "sha256": digest.hexdigest(),
-                }
-            )
-        with db.transaction() as session:
-            record = Record(
-                client_key=idempotency_key,
-                kind="mixed" if len(saved) > 1 or content else "file",
-                title=title.strip() or saved[0]["filename"],
-                content=content,
-                notes=notes,
-                purpose=purpose,
-            )
-            session.add(record)
-            session.flush()
-            for item in saved:
-                session.add(Attachment(record_id=record.id, **item))
-            queue_run(session, record)
-            result = record_out(record)
-        return result
-    except Exception:
-        for path in written:
-            path.unlink(missing_ok=True)
-        raise
-    finally:
-        for upload in files:
-            await upload.close()
+    from wiki_app.modules.capture.router import receive_capture
+
+    return await receive_capture(files, text=content, title=title, notes=notes, purpose=purpose,
+                                 idempotency_key=idempotency_key)
 
 
 @router.get("/records/{record_id}")
@@ -225,6 +184,15 @@ def record_detail(record_id: str):
             "attachments": attachments_out(session, record_id),
             "relations": relations,
             "pages": pages,
+            "inputs": [input_out(item) for item in current_inputs(session, record)],
+            "history_matches": history_matches(session, record),
+            "context_suggestions": context_suggestions(session, record),
+            "insights": [{**columns(item, "id version status explanation evidence feedback error created_at"),
+                          "stale": record.archived or item.version != record.version or (
+                              item.status == "ready" and not valid_evidence(session, item.evidence))}
+                         for item in session.scalars(select(CaptureInsight).where(
+                             CaptureInsight.record_id == record.id).order_by(CaptureInsight.created_at.desc())
+                             .limit(get_settings().record_history_limit))],
         }
 
 
@@ -253,8 +221,12 @@ def reread(record_id: str):
         if record.archived:
             raise AppError("请先恢复归档记录。")
         cancel_runs(session, record)
+        old_version = record.version
         record.version += 1
         record.coverage = {}
+        from wiki_app.modules.capture.service import clone_inputs
+
+        clone_inputs(session, record, old_version)
         return run_out(queue_run(session, record))
 
 

@@ -1,6 +1,5 @@
 """读取原件并生成带位置的证据片段；未取得的内容明确记录为缺失。"""
 
-from collections import defaultdict
 from zipfile import ZipFile
 
 import pdfplumber
@@ -8,11 +7,9 @@ from docx import Document
 from PIL import Image
 
 from wiki_app.config import get_settings
-from wiki_app.errors import AppError, ConfigurationRequired
+from wiki_app.errors import AppError
 from wiki_app.integrations.media import inference, probe, video_frames
-from wiki_app.integrations.platform_video import is_platform_video, read_platform_video
 from wiki_app.integrations.storage import storage_path
-from wiki_app.integrations.web import read_webpage
 from wiki_app.models import Attachment, Record
 
 
@@ -146,93 +143,6 @@ def extract_attachment(attachment: Attachment) -> tuple[list[dict], list[str]]:
 
 
 def extract_record(record: Record, attachments: list[Attachment]) -> tuple[list[dict], dict]:
-    pieces, notices, failures = [], [], []
-    missing_configuration = False
-    ordinals: dict[str, int] = defaultdict(int)
+    from wiki_app.modules.capture.processing import process_inputs
 
-    def append(origin: str, raw: list[dict]):
-        for piece in raw:
-            if piece["text"].strip():
-                pieces.append({**piece, "origin": origin, "ordinal": ordinals[origin]})
-                ordinals[origin] += 1
-
-    if record.content.strip():
-        append(
-            "body",
-            [
-                {"text": s, "method": "user_text", "locator": {"kind": "original_text"}}
-                for s in split_text(record.content)
-            ],
-        )
-    if record.notes.strip():
-        append(
-            "notes",
-            [
-                {"text": s, "method": "user_note", "locator": {"kind": "personal_note"}}
-                for s in split_text(record.notes)
-            ],
-        )
-    if record.url:
-        try:
-            if is_platform_video(record.url):
-                segments, downloaded = read_platform_video(record.url, record.id, record.version)
-                append(
-                    "platform_subtitles",
-                    [
-                        {
-                            "text": item["text"],
-                            "method": "platform_subtitles",
-                            "locator": {
-                                "url": record.url,
-                                "start": item["start"],
-                                "end": item["end"],
-                            },
-                        }
-                        for item in segments
-                    ],
-                )
-                if downloaded:
-                    from wiki_app.models import new_id
-
-                    downloaded.id = new_id()
-                    attachments.append(downloaded)
-                else:
-                    notices.append(
-                        "复用平台字幕（可能为自动字幕），未分析视频画面；时间位置对应原片。"
-                    )
-            else:
-                web = read_webpage(record.url)
-                append(
-                    "web",
-                    [
-                        {"text": s, "method": "web", "locator": {"url": web["url"]}}
-                        for s in split_text(web["text"])
-                    ],
-                )
-                notices.append(web["coverage"])
-        except AppError as exc:
-            failures.append(exc.message)
-            missing_configuration |= isinstance(exc, ConfigurationRequired)
-    for attachment in attachments:
-        try:
-            extracted, warnings = extract_attachment(attachment)
-            append(attachment.id, extracted)
-            notices.extend(warnings)
-            if not extracted:
-                failures.append(f"{attachment.filename} 未识别到可读文字或语音。")
-        except AppError as exc:
-            failures.append(f"{attachment.filename}：{exc.message}")
-            missing_configuration |= isinstance(exc, ConfigurationRequired)
-        except Exception:
-            failures.append(f"{attachment.filename} 读取失败，文件可能损坏或格式暂不支持。")
-    if not pieces:
-        if missing_configuration:
-            raise ConfigurationRequired("；".join(failures))
-        raise AppError(
-            "；".join(failures) or "未取得可分析的文字或语音，请补充素材。", "read_failed"
-        )
-    return pieces, {
-        "status": "partial" if failures or notices else "complete",
-        "details": list(dict.fromkeys(notices + failures)),
-        "source_count": len(pieces),
-    }
+    return process_inputs(record, attachments)

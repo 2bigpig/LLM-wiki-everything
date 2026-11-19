@@ -37,7 +37,8 @@ class Record(Base):
     title: Mapped[str] = mapped_column(String(300))
     content: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str | None] = mapped_column(Text)
-    url_key: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # URL 仅为兼容展示；内容身份移到 resources，同一内容允许多次主动收藏。
+    url_key: Mapped[str | None] = mapped_column(String(64), index=True)
     notes: Mapped[str] = mapped_column(Text, default="")
     purpose: Mapped[str] = mapped_column(String(20), default="auto")
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -57,6 +58,8 @@ class Attachment(Base):
     media_type: Mapped[str] = mapped_column(String(100))
     size: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
+    # 平台下载的衍生媒体用于定位播放，不再次当作新上传来源识别。
+    derived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Source(Base):
@@ -64,6 +67,7 @@ class Source(Base):
     __table_args__ = (UniqueConstraint("record_id", "version", "origin", "ordinal"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     record_id: Mapped[str] = mapped_column(ForeignKey("records.id"), index=True)
+    input_id: Mapped[str | None] = mapped_column(ForeignKey("capture_inputs.id"), index=True)
     version: Mapped[int] = mapped_column(Integer)
     origin: Mapped[str] = mapped_column(String(100))
     ordinal: Mapped[int] = mapped_column(Integer)
@@ -100,6 +104,7 @@ class Analysis(Base):
     kind: Mapped[str] = mapped_column(String(30))
     summary: Mapped[str] = mapped_column(Text)
     topics: Mapped[list] = mapped_column(JSON)
+    topic_evidence: Mapped[list] = mapped_column(JSON, default=list)
     points: Mapped[list] = mapped_column(JSON)
     observations: Mapped[str] = mapped_column(Text, default="")
     model: Mapped[str] = mapped_column(String(200))
@@ -161,3 +166,117 @@ class ModelCall(Base):
     response: Mapped[dict | None] = mapped_column(JSON)
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class Resource(Base):
+    """内容身份不等于收藏事件；只用确定性身份归并，不按相似标题合并。"""
+
+    __tablename__ = "resources"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    identity: Mapped[str] = mapped_column(String(64), unique=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    url: Mapped[str | None] = mapped_column(Text)
+    label: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CaptureInput(Base):
+    """一次收藏某版本的输入来源；失败状态和读取片段一起持久化。"""
+
+    __tablename__ = "capture_inputs"
+    __table_args__ = (UniqueConstraint("record_id", "version", "origin"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    record_id: Mapped[str] = mapped_column(ForeignKey("records.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    resource_id: Mapped[str] = mapped_column(ForeignKey("resources.id"), index=True)
+    origin: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(20))
+    label: Mapped[str] = mapped_column(String(500))
+    url: Mapped[str | None] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text, default="")
+    attachment_id: Mapped[str | None] = mapped_column(ForeignKey("attachments.id"))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    included: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    error: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(50))
+    details: Mapped[list] = mapped_column(JSON, default=list)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Topic(Base):
+    __tablename__ = "topics"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(100))
+    name_key: Mapped[str] = mapped_column(String(300), unique=True)
+
+
+class RecordTopic(Base):
+    """scope=record 为分析主题；scope=input_id 需要有可核对的来源支持。"""
+
+    __tablename__ = "record_topics"
+    __table_args__ = (UniqueConstraint("record_id", "version", "topic_id", "scope"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    record_id: Mapped[str] = mapped_column(ForeignKey("records.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id"), index=True)
+    scope: Mapped[str] = mapped_column(String(36), default="record")
+    source_ids: Mapped[list] = mapped_column(JSON, default=list)
+    feedback: Mapped[str] = mapped_column(String(20), default="suggested")
+
+
+class CaptureInsight(Base):
+    """可选解释独立排队，失败不改变收藏的正常整理状态。"""
+
+    __tablename__ = "capture_insights"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(ForeignKey("processing_runs.id"), unique=True)
+    record_id: Mapped[str] = mapped_column(ForeignKey("records.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    feedback: Mapped[str] = mapped_column(String(20), default="suggested")
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ReviewPreference(Base):
+    """个人自托管实例只有一份偏好；它是用户数据，不修改部署 YAML。"""
+
+    __tablename__ = "review_preferences"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="personal")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    paused_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ResourceReviewState(Base):
+    __tablename__ = "resource_review_states"
+    resource_id: Mapped[str] = mapped_column(ForeignKey("resources.id"), primary_key=True)
+    blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    paused_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_shown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ReviewBatch(Base):
+    __tablename__ = "review_batches"
+    __table_args__ = (UniqueConstraint("local_date", "timezone"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    local_date: Mapped[str] = mapped_column(String(10))
+    timezone: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ReviewCard(Base):
+    __tablename__ = "review_cards"
+    __table_args__ = (UniqueConstraint("batch_id", "resource_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("review_batches.id"), index=True)
+    resource_id: Mapped[str] = mapped_column(ForeignKey("resources.id"), index=True)
+    record_id: Mapped[str] = mapped_column(ForeignKey("records.id"))
+    kind: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    feedback: Mapped[str] = mapped_column(String(20), default="pending")
+    shown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

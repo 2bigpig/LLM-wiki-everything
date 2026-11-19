@@ -7,7 +7,8 @@ from alembic import context
 from wiki_app import db, models  # noqa: F401
 
 if context.config.config_file_name:
-    fileConfig(context.config.config_file_name)
+    # 嵌入调用迁移时保留应用日志，不能静默关闭已创建的 API/Worker logger。
+    fileConfig(context.config.config_file_name, disable_existing_loggers=False)
 
 
 def run():
