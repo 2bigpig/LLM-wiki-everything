@@ -1,0 +1,44 @@
+# 只运行数据库和模型；FastAPI、Worker、前端直接在宿主机运行。
+name: llm-wiki
+services:
+  postgres:
+    # 使用本机已有的 PostgreSQL 16 + pgvector；已有数据不可直接跨主版本切换。
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wiki
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki-local-change-me}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiki -d wiki"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+  bge:
+    image: llm-wiki-bge:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.embeddings
+    environment:
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      HF_HOME: /models/hf
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8103:8100"
+    volumes:
+      # 复用已下载的模型卷；只读挂载入口源码方便排错。
+      - embeddings:/models
+      - ./deploy/embedding_server.py:/app/embedding_server.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  postgres:
+  embeddings:

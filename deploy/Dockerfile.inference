@@ -1,0 +1,32 @@
+# 使用 NVIDIA 官方 Python 运行库，避免重复拉取包含开发外依赖的 CUDA 大镜像。
+FROM python:3.12-slim
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    PATH=/opt/venv/bin:$PATH HF_HOME=/models/hf PADDLE_PDX_CACHE_HOME=/models/paddlex \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    LD_LIBRARY_PATH=/opt/venv/lib/python3.12/site-packages/nvidia/cublas/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libgomp1 libglib2.0-0 libgl1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m venv /opt/venv
+# CUDA 12.6 / cuDNN 9.5 与 Paddle GPU 3.2.2 对齐；共用层只下载一次。
+RUN pip install --no-cache-dir nvidia-cublas-cu12==12.6.4.1 nvidia-cudnn-cu12==9.5.1.17 \
+    nvidia-cuda-runtime-cu12==12.6.77 nvidia-cuda-nvrtc-cu12==12.6.85
+WORKDIR /app
+COPY backend/ /app/
+ARG INFERENCE_KIND=asr
+RUN if [ "$INFERENCE_KIND" = "ocr" ]; then \
+      # PaddleX 3.3 固定 PyYAML 6.0.2，仅调整独立 OCR 镜像的约束。\
+      sed 's/^PyYAML==.*/PyYAML==6.0.2/' constraints.txt > /tmp/constraints-ocr.txt \
+      && pip install --no-cache-dir -c /tmp/constraints-ocr.txt '.[ocr]' paddleocr==3.3.2; \
+    else \
+      # faster-whisper 1.2.1 的 metadata_errors 参数需要兼容的 PyAV。\
+      pip install --no-cache-dir -c constraints.txt '.[asr]' av==16.1.0; fi
+# 大包单独成层并保留 pip 下载缓存，避免后续构建失败后重下。
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ "$INFERENCE_KIND" = "ocr" ]; then \
+      pip install paddlepaddle-gpu==3.2.2 \
+        --index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/; fi
+RUN useradd -u 10001 -m app && mkdir -p /data /models && chown -R app:app /data /models /app
+USER app
+EXPOSE 8100
+CMD ["python", "-m", "wiki_app.inference_server"]

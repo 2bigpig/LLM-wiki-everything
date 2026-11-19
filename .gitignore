@@ -1,0 +1,62 @@
+# 私密配置与本地证书：仅公开配置模板，不提交真实环境和凭据。
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python 虚拟环境、字节码和打包中间文件。
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# 前端依赖与前后端构建产物；package-lock.json 和 constraints.txt 需要提交。
+node_modules/
+dist/
+build/
+
+# 开发缓存、覆盖率和浏览器测试报告。
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage/
+htmlcov/
+playwright-report/
+test-results/
+
+# 本机运行目录：明确限定三个位置，避免误忽略源码中的 src/data。
+/data/
+/backend/data/
+/frontend/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+
+# IDE 个人配置与操作系统临时文件。
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 个人 AI 协作规则和开发过程记录保留本机，不属于开源交付内容。
+/.agents/
+/AGENTS.md
+/task_plan.md
+/findings.md
+/progress.md

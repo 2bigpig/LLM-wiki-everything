@@ -1,0 +1,53 @@
+# 构建上下文不包含 Git 历史、个人代理规则和过程记录。
+.git
+.agents
+AGENTS.md
+task_plan.md
+findings.md
+progress.md
+.idea
+.vscode
+
+# 本机密钥不进入构建上下文，配置模板仍可公开。
+.venv
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+
+# 排除实际运行目录，不匹配源码内部的 src/data。
+/data
+/backend/data
+/frontend/data
+
+# 依赖、构建结果、测试缓存和日志不需要发送给 Docker daemon。
+**/node_modules
+**/dist
+**/build
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.cache
+**/*.egg-info
+**/*.py[cod]
+**/*.log
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite3
+**/*.sqlite3-*
+**/playwright-report
+**/test-results
+**/coverage
+**/htmlcov
+**/.coverage*
+.DS_Store
+Thumbs.db
+Desktop.ini

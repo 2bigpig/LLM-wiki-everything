@@ -1,0 +1,13 @@
+# 独立 CPU 向量服务，不打包业务后端，也不占用 OCR/ASR 显存。
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HOME=/models/hf
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir 'sentence-transformers>=3,<6' 'fastapi>=0.115,<1' 'uvicorn>=0.34,<1'
+WORKDIR /app
+COPY deploy/embedding_server.py /app/
+RUN useradd -u 10001 -m app && mkdir -p /models && chown app:app /models
+USER app
+EXPOSE 8100
+CMD ["python", "embedding_server.py"]
