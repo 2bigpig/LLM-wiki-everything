@@ -1,14 +1,11 @@
 """HTTP 入口只负责交互和装配；长任务由独立 Worker 执行。"""
 
-import hashlib
-import hmac
 import logging
-import secrets
 import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import APIRouter, Cookie, Depends, FastAPI, Header, Query, Request, Response
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -69,7 +66,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in get_settings().cors_origins.split(",")],
     allow_methods=["GET", "POST", "PUT", "PATCH"],
-    allow_headers=["Content-Type", "X-API-Key", "Idempotency-Key"],
+    allow_headers=["Content-Type", "Idempotency-Key"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -97,66 +94,11 @@ async def database_error(request: Request, exc: SQLAlchemyError):
     )
 
 
-def session_signature(expires: str) -> str:
-    return hmac.new(
-        get_settings().api_token.get_secret_value().encode(),
-        ("wiki-session:" + expires).encode(),
-        hashlib.sha256,
-    ).hexdigest()
-
-
-def authenticate(x_api_key: str = Header(default=""), wiki_session: str = Cookie(default="")):
-    token = get_settings().api_token.get_secret_value()
-    if not token or secrets.compare_digest(token, x_api_key):
-        return
-    # 媒体标签不能发送自定义请求头，使用短期 HttpOnly 会话供附件预览。
-    try:
-        expires, signature = wiki_session.split(".", 1)
-        if int(expires) > time.time() and secrets.compare_digest(
-            signature, session_signature(expires)
-        ):
-            return
-    except (ValueError, TypeError):
-        pass
-    raise AppError("请在设置中填写本地访问口令。", "unauthorized", 401)
-
-
-api = APIRouter(prefix="/api", dependencies=[Depends(authenticate)])
-
-
-def authenticate_models(x_api_key: str = Header(default="")):
-    """凭据管理比只读使用更严格：必须配置实例口令且显式携带，不能以空口令访问。"""
-    token = get_settings().api_token.get_secret_value()
-    if not token:
-        raise AppError("请先运行 scripts/prepare-model-settings.ps1 配置实例口令和模型主密钥。",
-                       "management_setup_required", 403)
-    if not secrets.compare_digest(token, x_api_key):
-        raise AppError("请先在设置中验证实例口令。", "unauthorized", 401)
-
-
-api.include_router(models_router, dependencies=[Depends(authenticate_models)])
+# 开发阶段直接访问；用户登录与 RBAC 后续统一接入，不再维护临时共享口令。
+api = APIRouter(prefix="/api")
+api.include_router(models_router)
 api.include_router(library_router)
 api.include_router(wiki_router)
-
-
-@api.post("/session")
-def open_session(response: Response):
-    expires = str(int(time.time()) + 8 * 3600)
-    response.set_cookie(
-        "wiki_session",
-        expires + "." + session_signature(expires),
-        max_age=8 * 3600,
-        httponly=True,
-        samesite="strict",
-        path="/api",
-    )
-    return {"status": "ok"}
-
-
-@api.post("/session/logout")
-def close_session(response: Response):
-    response.delete_cookie("wiki_session", path="/api")
-    return {"status": "ok"}
 
 
 @app.get("/healthz")
@@ -180,7 +122,7 @@ def overview():
             "pending": session.scalar(
                 select(func.count())
                 .select_from(ProcessingRun)
-                .where(ProcessingRun.status.in_(("queued", "running")))
+                .where(ProcessingRun.status.in_(("queued", "running", "waiting_schedule")))
             ),
         }
 
@@ -200,7 +142,7 @@ def capabilities():
         "embeddings": status["embeddings"],
         "embedding_model": status["embedding_model"],
         "browser": settings.browser_enabled,
-        "access_token_required": bool(settings.api_token.get_secret_value()),
+        "access_token_required": False,  # 兼容旧客户端字段；开发阶段没有临时口令。
         "max_upload_mb": settings.max_upload_mb,
         "max_media_minutes": settings.max_media_minutes,
         "monthly_token_limit": settings.monthly_token_limit,
@@ -255,8 +197,8 @@ def cancel_run(run_id: str):
             select(Record).where(Record.id == run.record_id).with_for_update(key_share=True)
         )
         session.refresh(run)
-        if run.status in ("queued", "running"):
-            run.status = "cancelled"
+        if run.status in ("queued", "running", "waiting_schedule"):
+            run.status, run.scheduled_for, run.error = "cancelled", None, None
             if record.version == run.version:
                 record.status = "cancelled"
         return run_out(run)

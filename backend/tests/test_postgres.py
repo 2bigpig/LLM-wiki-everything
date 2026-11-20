@@ -55,6 +55,8 @@ def test_postgres_migration_checkpoint_search_and_queue(monkeypatch, tmp_path, c
         # 明确限定版本表 schema，防止已有 public.alembic_version 导致误跳过迁移。
         config.attributes["version_table_schema"] = schema
         command.upgrade(config, "head")
+        from wiki_app.modules.model_management.scheduling import prepare_schema
+        prepare_schema(db.engine)
         with PostgresSaver.from_conn_string(get_settings().postgres_dsn) as saver:
             saver.setup()
             with TestClient(app) as client:

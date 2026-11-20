@@ -23,10 +23,9 @@ const navigation = [
 ]
 async function load() {
   try {
-    if (sessionStorage.getItem('wiki-access-token')) await api('/session', { method: 'POST' })
     const [stats, caps] = await Promise.all([api<typeof overview.value>('/overview'), api<Capabilities>('/capabilities')])
     overview.value = stats; capabilities.value = caps
-  } catch { /* 页面自身显示连接或口令错误，侧栏不重复弹出通知。 */ }
+  } catch { /* 页面自身显示连接错误，侧栏不重复弹出通知。 */ }
 }
 function submitSearch() { if (search.value.trim()) void router.push({ path: '/search', query: { q: search.value.trim() } }) }
 function isActive(path: string) {

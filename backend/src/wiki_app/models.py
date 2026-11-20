@@ -91,6 +91,9 @@ class ProcessingRun(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     # 阶段只存非敏感修订 ID；自动重试不能悄悄切换模型。
     model_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 入批凭据与下次调度时间持久化，服务重启后不会丢失优惠时段等待。
+    llm_admitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
@@ -213,6 +216,7 @@ class ModelPreferences(Base):
     id: Mapped[str] = mapped_column(String(20), primary_key=True, default="personal")
     bindings: Mapped[dict] = mapped_column(JSON, default=dict)
     active_space_id: Mapped[str | None] = mapped_column(String(36))
+    llm_schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class ModelProbe(Base):
@@ -315,6 +319,8 @@ class CaptureInsight(Base):
     evidence: Mapped[list] = mapped_column(JSON, default=list)
     feedback: Mapped[str] = mapped_column(String(20), default="suggested")
     error: Mapped[str | None] = mapped_column(Text)
+    llm_admitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

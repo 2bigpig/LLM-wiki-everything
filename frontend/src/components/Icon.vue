@@ -20,6 +20,8 @@ const paths: Record<string, string> = {
   branch: 'M6 3v12a3 3 0 0 0 3 3h9M6 8h9a3 3 0 0 0 3-3V3M18 15v6',
   archive: 'M9 4H4v16h5M15 4h5v16h-5M9 12h6',
   menu: 'M4 6h16M4 12h16M4 18h16',
+  eye: 'M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  'eye-off': 'M3 3l18 18M10 5.2A12 12 0 0 1 12 5c7 0 10 7 10 7a18 18 0 0 1-3 4M6 6a18 18 0 0 0-4 6s3 7 10 7a12 12 0 0 0 6-2M10 10a3 3 0 0 0 4 4',
 }
 </script>
 <template>

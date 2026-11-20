@@ -31,6 +31,8 @@ def test_old_vector_migration_and_worker_rebuild(native, monkeypatch):
             VALUES ('old-vector-source','old-vector',1,'text',0,'原始证据','{}','text','原始 证据',
                     CAST(:vector AS vector),'BAAI/bge-m3')"""), {"vector": json.dumps(vector)})
     command.upgrade(config, "head")
+    from wiki_app.modules.model_management.scheduling import prepare_schema
+    prepare_schema(db.engine)
     with db.transaction() as session:
         old = session.scalar(select(EmbeddingSpace))
         assert session.scalar(select(func.count()).select_from(SourceVector)) == 1

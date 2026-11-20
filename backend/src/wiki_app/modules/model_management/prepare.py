@@ -1,7 +1,6 @@
 """本机幂等准备：先备份，导入成功才移除旧 LLM 密钥，不输出秘密值。"""
 
 import os
-import secrets
 from datetime import datetime
 
 from cryptography.fernet import Fernet
@@ -29,8 +28,6 @@ def prepare():
     for name in SECRET_KEYS:
         if name in os.environ:
             values[name] = os.environ[name]
-    if not values.get("API_TOKEN"):
-        values["API_TOKEN"] = secrets.token_urlsafe(32)
     if not values.get("MODEL_CREDENTIAL_KEY"):
         values["MODEL_CREDENTIAL_KEY"] = Fernet.generate_key().decode()
     try:
@@ -43,13 +40,13 @@ def prepare():
         backup.write_bytes(original)
     # 主密钥先落盘，保证数据库提交后即使文件收尾失败也能恢复凭据。
     write_private(path, values)
-    for key in ("MODEL_CREDENTIAL_KEY", "API_TOKEN"):
-        os.environ[key] = values[key]
+    os.environ["MODEL_CREDENTIAL_KEY"] = values["MODEL_CREDENTIAL_KEY"]
     get_settings.cache_clear()
     committed = False
     try:
         from wiki_app import db
         from wiki_app.models import ModelConnection
+        from wiki_app.modules.model_management.scheduling import prepare_schema
         from wiki_app.modules.model_management.schemas import ConnectionInput, ModelInput
         from wiki_app.modules.model_management.service import (
             decrypt,
@@ -58,6 +55,7 @@ def prepare():
             save_model,
         )
 
+        prepare_schema(db.engine)
         with db.transaction() as session:
             prefs = preferences(session)
             # 验证原主密钥可解密已有数据；错误时绝不导入或替换。
@@ -92,7 +90,7 @@ def prepare():
         get_settings.cache_clear()
         raise
     get_settings.cache_clear()
-    print("模型管理准备完成；实例口令和主密钥保存在 .env，请在设置中输入 API_TOKEN。")
+    print("模型管理准备完成；加密主密钥保存在 .env，打开设置页即可配置模型。")
     if backup:
         print("原私密配置已在同目录创建 .env.backup.models.* 备份，请妥善保管。")
 

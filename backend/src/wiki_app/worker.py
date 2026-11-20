@@ -63,6 +63,10 @@ async def dispatch():
                 await app.job_manager.retry_job_by_id_async(job.id, retry_at=now())
             await app.job_manager.prune_stalled_workers(
                 seconds_since_heartbeat=settings.worker_stalled_seconds)
+            from wiki_app.modules.model_management.scheduling import tick
+
+            # 待办只在允许时放回正常队列，等待时不占消费者或消耗重试。
+            tick()
             with db.SessionLocal() as session:
                 pending = list(
                     session.scalars(

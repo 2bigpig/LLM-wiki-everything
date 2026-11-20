@@ -27,7 +27,7 @@ config.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
 from cryptography.fernet import Fernet  # noqa: E402
 
 os.environ.update(WIKI_CONFIG_FILE=str(config), WIKI_RUNTIME="host",
-                  POSTGRES_PASSWORD="test-only", API_TOKEN="browser-test-token", LLM_API_KEY="",
+                  POSTGRES_PASSWORD="test-only", API_TOKEN="", LLM_API_KEY="",
                   MODEL_CREDENTIAL_KEY=Fernet.generate_key().decode())
 
 from test_workflow import fake_complete  # noqa: E402
@@ -92,6 +92,9 @@ generate_daily(models.now().astimezone(ZoneInfo(get_settings().review_timezone))
 
 def worker():
     while True:
+        from wiki_app.modules.model_management.scheduling import tick
+
+        tick()
         with db.SessionLocal() as session:
             ids = list(
                 session.scalars(

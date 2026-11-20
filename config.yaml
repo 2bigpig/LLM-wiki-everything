@@ -83,6 +83,14 @@ worker:
   worker_stalled_seconds: 90
 # 管理页的初始预设；选择、模型参数和密钥在数据库管理，不反写公共 YAML。
 model_management:
+  # 首次调度默认关闭；启用后到结束时间默认继续完成已进入本批的任务。
+  # 下面是可编辑的初始示例，不代表任何厂商当前的优惠承诺。
+  schedule_defaults:
+    enabled: false
+    start: '00:30'
+    end: '08:30'
+    timezone: Asia/Shanghai
+    end_policy: finish_batch
   probe_timeout_seconds: 60
   discovery_limit: 200
   provider_presets:

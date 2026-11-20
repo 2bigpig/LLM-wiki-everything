@@ -24,7 +24,7 @@ def record_out(record: Record, analysis=None) -> dict:
 
 def run_out(run) -> dict:
     return columns(
-        run, "id record_id version status stage attempts error created_at updated_at finished_at"
+        run, "id record_id version status stage attempts error created_at updated_at finished_at scheduled_for"
     )
 
 

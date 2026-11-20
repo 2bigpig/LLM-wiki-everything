@@ -9,6 +9,7 @@ from wiki_app.integrations import llm
 from wiki_app.models import CaptureInsight, ProcessingRun, Record, Source
 from wiki_app.modules.capture.service import history_matches
 from wiki_app.modules.graph.service import valid_evidence
+from wiki_app.modules.model_management.scheduling import ScheduleDeferred, read_policy
 from wiki_app.schemas import InsightDraft
 
 
@@ -37,7 +38,7 @@ def insight_context(session, record, run):
                    for source in sources]}, {source.id: source for source in sources}
 
 
-def prepare_insight(run_id):
+def prepare_insight(run_id, inherit_admission=False):
     if not get_settings().review_insights_enabled:
         return
     with db.transaction() as session:
@@ -50,15 +51,17 @@ def prepare_insight(run_id):
         ignored = session.scalar(select(CaptureInsight.id).where(
             CaptureInsight.record_id == record.id, CaptureInsight.feedback == "ignored").limit(1))
         status = "pending" if not ignored and insight_context(session, record, run) else "insufficient_evidence"
+        admitted = run.llm_admitted_at if inherit_admission and read_policy(session).end_policy == "finish_batch" else None
         session.add(CaptureInsight(run_id=run_id, record_id=record.id, version=record.version,
-                                   status=status, feedback="ignored" if ignored else "suggested"))
+                                   status=status, feedback="ignored" if ignored else "suggested",
+                                   llm_admitted_at=admitted))
 
 
 def generate_insight(insight_id):
     """每条解释至少引用两次收藏的个人表达；证据不足时保持事实提示。"""
     with db.SessionLocal() as session:
         insight = session.get(CaptureInsight, insight_id)
-        if not insight or insight.status not in ("pending", "failed"):
+        if not insight or insight.status not in ("pending", "failed", "waiting_schedule"):
             return
         record, run = session.get(Record, insight.record_id), session.get(ProcessingRun, insight.run_id)
         context = None if record.archived or record.version != insight.version else insight_context(session, record, run)
@@ -100,8 +103,10 @@ def generate_insight(insight_id):
             llm.invalidate_result(insight.run_id, "revisit")
         with db.transaction() as session:
             stored = session.get(CaptureInsight, insight_id)
-            stored.status = "waiting_configuration" if isinstance(exc, ConfigurationRequired) else (
+            stored.status = "waiting_schedule" if isinstance(exc, ScheduleDeferred) else "waiting_configuration" if isinstance(exc, ConfigurationRequired) else (
                 "budget_exceeded" if isinstance(exc, BudgetExceeded) else "failed")
+            if isinstance(exc, ScheduleDeferred):
+                stored.scheduled_for = exc.scheduled_for
             stored.error = exc.message if isinstance(exc, AppError) else "解释暂时不可用，原始收藏不受影响。"
 
 

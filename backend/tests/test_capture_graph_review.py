@@ -262,13 +262,13 @@ def test_new_content_does_not_create_fake_daily_cards(environment):
         assert not daily_cards(session, clock)["items"]
 
 
-def test_review_and_graph_authentication(client, monkeypatch):
+def test_review_and_graph_development_access_ignores_legacy_token(client, monkeypatch):
     from wiki_app.config import get_settings
 
     monkeypatch.setenv("API_TOKEN", "capture-access-only")
     get_settings.cache_clear()
     for endpoint in ("/api/graph", "/api/reviews"):
-        assert client.get(endpoint).status_code == 401
+        assert client.get(endpoint).status_code == 200
 
 
 def test_insight_needs_two_expressions_and_budget_failure_is_independent(client, monkeypatch):

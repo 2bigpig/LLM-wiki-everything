@@ -18,7 +18,7 @@ export interface Analysis {
 }
 export interface Run {
   id: string; record_id: string; record_title?: string; version: number; status: string
-  stage: string; attempts: number; error: string | null; created_at: string; updated_at: string
+  stage: string; attempts: number; error: string | null; created_at: string; updated_at: string; scheduled_for?: string | null
 }
 export interface Relation {
   id: string; kind: string; explanation: string; feedback: string
@@ -101,8 +101,6 @@ export class ApiError extends Error {
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
-  const token = sessionStorage.getItem('wiki-access-token')
-  if (token) headers.set('X-API-Key', token)
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   let response: Response
   try { response = await fetch('/api' + path, { ...options, headers }) }
@@ -125,6 +123,7 @@ export const post = <T>(path: string, body?: unknown) => api<T>(path, {
 })
 
 export const statusLabels: Record<string, string> = {
+  waiting_schedule: '等待执行时段',
   queued: '等待整理', running: '正在整理', completed: '整理完成', failed: '处理失败',
   waiting_configuration: '等待配置', budget_exceeded: '额度不足', cancelled: '已停止',
 }

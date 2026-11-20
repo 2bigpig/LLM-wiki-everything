@@ -66,6 +66,14 @@ def check_environment():
                         missing.append(name)
             if missing:
                 raise RuntimeError(f"数据库缺少表 {', '.join(missing)}；请执行：{MIGRATE_COMMAND}")
+            with connection.cursor() as cursor:
+                for table, required in {"model_preferences": {"llm_schedule"},
+                        "processing_runs": {"llm_admitted_at", "scheduled_for"},
+                        "capture_insights": {"llm_admitted_at", "scheduled_for"}}.items():
+                    cursor.execute("SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema=current_schema() AND table_name=%s", (table,))
+                    if required - {row[0] for row in cursor.fetchall()}:
+                        raise RuntimeError("数据库缺少调度字段，请执行 scripts/prepare-model-settings.ps1 完成开发环境准备。")
     except psycopg.Error as exc:
         # 不输出包含 DSN 的底层异常，避免密码进入终端或日志。
         raise RuntimeError(

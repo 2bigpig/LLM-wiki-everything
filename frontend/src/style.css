@@ -498,3 +498,6 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   .spinner { animation: none; }
 }
+
+/* 等待优惠时段是正常排程状态，不使用失败样式。 */
+.status.waiting_schedule { color:var(--secondary); background:var(--surface); }

@@ -23,7 +23,7 @@
 
 ## 私密配置与旧环境迁移
 
-`.env` 仅接受 `POSTGRES_PASSWORD`、`LLM_API_KEY`、`API_TOKEN`。同名进程环境变量优先于文件，普通环境变量不能覆盖 YAML；发现旧普通键会列出键名并停止启动，不打印值。`TEST_DATABASE_URL`、Playwright 浏览器路径等独立测试入口不受影响。
+`.env` 接受 `POSTGRES_PASSWORD`、`MODEL_CREDENTIAL_KEY`，并兼容旧 `LLM_API_KEY`、`API_TOKEN`；旧 `API_TOKEN` 不再参与鉴权。同名进程环境变量优先于文件，普通环境变量不能覆盖 YAML；发现旧普通键会列出键名并停止启动，不打印值。`TEST_DATABASE_URL`、Playwright 浏览器路径等独立测试入口不受影响。
 
 首次准备环境使用 `scripts/setup-local.ps1`，它会在安装依赖后执行迁移。已有环境可单独执行：
 
@@ -60,8 +60,10 @@ npm --prefix frontend run dev
 模型准备仍使用 `scripts/prepare-models.ps1 -SkipBuild -IncludeEmbeddings`；没有匹配镜像时去掉 `-SkipBuild`。所有进程都在启动时校验配置，不增加后台配置管理服务，不支持配置热更新。实际原件、数据库数据与模型权重不写入 YAML 或 Git。
 ## 运行时模型配置（0003 起）
 
-厂商预设位于 `model_management.provider_presets`，只包含公共连接模板。管理页编辑的连接、模型参数、阶段选择和向量空间保存 PostgreSQL，YAML 不再覆盖它们。原 `llm` 参数只用于首次导入，预算上限仍生效。
+厂商预设位于 `model_management.provider_presets`，只包含公共连接模板。管理页仅编辑 LLM 连接、模型参数和阶段选择，保存 PostgreSQL；Embedding 与 OCR 为项目固定技术栈，不提供用户替换入口。原 `llm` 参数只用于首次导入，预算上限仍生效。
 
-`.env` 新增 `MODEL_CREDENTIAL_KEY`，由 `scripts/prepare-model-settings.ps1` 生成；它是凭据加密主密钥，必须与数据库备份配对保管。`LLM_API_KEY` 仅兼容首次迁移。运行时配置无需重启；实例口令、主密钥或部署配置变化需重启后端。
+`model_management.schedule_defaults` 是后台 LLM 每日时段的首次默认值：开关、开始/结束时间、IANA 时区和结束策略。默认关闭；启用后默认 `finish_batch` 完成本批，也可选 `wait_next_window`。页面保存的策略优先并即时生效，只控制后台 LLM，手动测试和本地处理不延迟。
 
-Embedding 本轮固定 1024 维；改变模型需要独立空间重建并切换，不能仅改容器模型后继续使用旧向量。完整说明见 [模型管理](MODEL_MANAGEMENT.md)。
+`.env` 新增 `MODEL_CREDENTIAL_KEY`，由 `scripts/prepare-model-settings.ps1` 生成；它是凭据加密主密钥，必须与数据库备份配对保管。`LLM_API_KEY` 仅兼容首次迁移。运行时配置无需重启；主密钥或部署配置变化需重启后端。
+
+Embedding 固定使用项目内置 BGE-M3（1024 维），OCR 使用 PaddleOCR；用户不更换模型。内部向量空间和历史引用继续保留，开发者调整部署时不能混用不兼容的向量。完整说明见 [模型管理](MODEL_MANAGEMENT.md)。

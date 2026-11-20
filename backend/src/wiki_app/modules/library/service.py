@@ -9,7 +9,7 @@ from wiki_app.errors import AppError
 from wiki_app.models import ProcessingRun, Record, now
 from wiki_app.schemas import RecordCreate, RecordEdit
 
-ACTIVE = ("queued", "running")
+ACTIVE = ("queued", "running", "waiting_schedule")
 
 
 def normalize_url(value: str) -> str:
@@ -101,11 +101,11 @@ def cancel_runs(session: Session, record: Record):
         select(ProcessingRun).where(
             ProcessingRun.record_id == record.id,
             ProcessingRun.status.in_(
-                ("queued", "running", "waiting_configuration", "budget_exceeded")
+                ("queued", "running", "waiting_schedule", "waiting_configuration", "budget_exceeded")
             ),
         )
     ):
-        run.status, run.finished_at = "cancelled", now()
+        run.status, run.finished_at, run.scheduled_for = "cancelled", now(), None
 
 
 def retry_record(session: Session, record_id: str, fresh: bool = False) -> ProcessingRun:

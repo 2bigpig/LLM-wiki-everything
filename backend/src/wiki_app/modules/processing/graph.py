@@ -26,6 +26,7 @@ from wiki_app.models import (
 from wiki_app.modules.capture.service import current_inputs
 from wiki_app.modules.capture.topics import sync_topics, validate_topic_evidence
 from wiki_app.modules.knowledge.service import apply_wiki, save_relation, title_key
+from wiki_app.modules.model_management.scheduling import ScheduleDeferred
 from wiki_app.modules.search.service import index_sources, retrieve, searchable
 from wiki_app.schemas import AnalysisDraft, RelationsDraft, WikiDrafts
 
@@ -370,14 +371,16 @@ def execute_run(run_id: str, checkpointer):
         from wiki_app.modules.review.insights import prepare_insight
 
         try:
-            prepare_insight(run_id)
+            prepare_insight(run_id, inherit_admission=True)
         except Exception as exc:
             # 可选解释的排队不反向改变已完成的收藏，派发器会补齐缺失待办。
             logger.warning("再次关注解释暂未排队 run_id=%s error=%s", run_id, type(exc).__name__)
         logger.info("任务执行结束 run_id=%s", run_id)
     except Exception as exc:
         status = (
-            "waiting_configuration"
+            "waiting_schedule"
+            if isinstance(exc, ScheduleDeferred)
+            else "waiting_configuration"
             if isinstance(exc, ConfigurationRequired)
             else "budget_exceeded"
             if isinstance(exc, BudgetExceeded)
@@ -397,7 +400,13 @@ def execute_run(run_id: str, checkpointer):
             run.error = (
                 exc.message if isinstance(exc, AppError) else "处理异常，请查看服务日志并重试。"
             )
-            run.finished_at = now()
+            deferred = isinstance(exc, ScheduleDeferred) and status == "waiting_schedule"
+            run.finished_at = None if deferred else now()
+            if deferred:
+                run.scheduled_for = exc.scheduled_for
+                run.attempts = max(0, run.attempts - 1)
+            else:
+                run.scheduled_for = None
             if record.version == run.version and not record.archived:
                 record.status = status
         if not isinstance(exc, AppError):

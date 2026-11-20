@@ -76,22 +76,18 @@ def test_storage_traversal_and_failed_upload_cleanup(client, environment):
     assert client.get("/api/records").json()["total"] == 0
 
 
-def test_access_token_and_media_cookie(client, monkeypatch):
+def test_development_access_and_media_without_temporary_token(client, monkeypatch):
+    # 已存在的旧口令不再拦截开发接口，附件也无需临时 Cookie。
     monkeypatch.setenv("API_TOKEN", "test-local-access")
     get_settings.cache_clear()
-    assert client.get("/api/records").status_code == 401
-    assert client.post("/api/session", headers={"X-API-Key": "wrong"}).status_code == 401
-    assert (
-        client.post("/api/session", headers={"X-API-Key": "test-local-access"}).status_code == 200
-    )
     assert client.get("/api/records").status_code == 200
+    assert client.post("/api/session").status_code == 404
     saved = client.post(
         "/api/records/upload", files={"files": ("note.txt", b"original text", "text/plain")}
     ).json()
     file_id = client.get("/api/records/" + saved["id"]).json()["attachments"][0]["id"]
     assert client.get("/api/files/" + file_id).content == b"original text"
-    assert client.post("/api/session/logout").status_code == 200
-    assert client.get("/api/files/" + file_id).status_code == 401
+    assert not client.cookies.get("wiki_session")
 
 
 def test_model_cache_and_conservative_budget(client, monkeypatch, configure):

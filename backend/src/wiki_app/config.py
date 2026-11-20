@@ -280,11 +280,44 @@ class ProviderPreset(Section):
     base_url: str
 
 
+class LLMScheduleSettings(Section):
+    """公共文件提供首次默认值，页面修改后的调度策略保存在数据库。"""
+
+    enabled: bool
+    start: str
+    end: str
+    timezone: str
+    end_policy: Literal["finish_batch", "wait_next_window"]
+
+    @field_validator("start", "end")
+    @classmethod
+    def clock_time(cls, value):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+            raise ValueError("时间必须为 HH:mm")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def schedule_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError("时区必须是有效的 IANA 名称") from None
+        return value
+
+    @model_validator(mode="after")
+    def different_times(self):
+        if self.enabled and self.start == self.end:
+            raise ValueError("开始和结束时间不能相同；全天执行请关闭调度")
+        return self
+
+
 class ModelManagement(Section):
     # 公共预设只含地址和协议；用户密钥及实际选择保存数据库。
     provider_presets: list[ProviderPreset]
     probe_timeout_seconds: Seconds
     discovery_limit: Positive
+    schedule_defaults: LLMScheduleSettings
 
 
 class PublicConfig(Section):
@@ -334,6 +367,7 @@ class Settings(PublicConfig):
     runtime: Literal["host", "ocr", "asr", "bge"] = "host"
     postgres_password: SecretStr = Field(default=SecretStr(""), exclude=True)
     llm_api_key: SecretStr = Field(default=SecretStr(""), exclude=True)
+    # 仅兼容旧 .env，开发阶段不再参与鉴权；后续使用独立用户登录与 RBAC。
     api_token: SecretStr = Field(default=SecretStr(""), exclude=True)
     model_credential_key: SecretStr = Field(default=SecretStr(""), exclude=True)
 

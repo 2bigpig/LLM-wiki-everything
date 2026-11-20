@@ -24,6 +24,9 @@ def main():
     if not config.exists():
         config = Path(__file__).resolve().parents[2] / "alembic.ini"
     command.upgrade(Config(str(config)), "head")
+    from wiki_app.modules.model_management.scheduling import prepare_schema
+
+    prepare_schema(db.engine)
     with PostgresSaver.from_conn_string(get_settings().postgres_dsn) as saver:
         saver.setup()
     with db.engine.connect() as connection:

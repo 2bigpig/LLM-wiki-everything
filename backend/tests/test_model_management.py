@@ -15,22 +15,22 @@ from wiki_app.errors import AppError, ConfigurationRequired
 from wiki_app.integrations import llm
 from wiki_app.models import (
     EmbeddingSpace,
+    ManagedModel,
     ModelCall,
     ModelConnection,
+    ModelRevision,
     ProcessingRun,
     Record,
     Source,
 )
 from wiki_app.modules.model_management import calls, runtime, service, vectors
-from wiki_app.modules.model_management.schemas import ModelInput, ProbeDraft
+from wiki_app.modules.model_management.schemas import ConnectionInput, ModelInput, ProbeDraft
 
 
 @pytest.fixture
 def management(client, monkeypatch):
-    monkeypatch.setenv("API_TOKEN", "test-admin")
     monkeypatch.setenv("MODEL_CREDENTIAL_KEY", Fernet.generate_key().decode())
     get_settings.cache_clear()
-    client.headers["X-API-Key"] = "test-admin"
     return client
 
 
@@ -45,8 +45,10 @@ def add_model(client, kind="llm", model="test-model"):
     return connection.json(), response.json(), data
 
 
-def test_management_requires_explicit_token_even_when_instance_open(client):
-    assert client.get("/api/model-settings").status_code == 403
+def test_management_development_access_ignores_legacy_token(client, monkeypatch):
+    monkeypatch.setenv("API_TOKEN", "legacy-unused-token")
+    get_settings.cache_clear()
+    assert client.get("/api/model-settings").status_code == 200
 
 
 def test_credentials_redacted_revision_snapshot_and_rotation(management):
@@ -168,19 +170,27 @@ def test_no_implicit_sdk_retry(protocol):
 
 def test_space_rebuild_resume_switch_and_wrong_dimensions(management, monkeypatch):
     client = management
-    _, model, _ = add_model(client, kind="embedding")
     with db.transaction() as session:
+        # 历史空间机制保留为内部维护能力，不再通过用户接口更换向量模型。
+        service.preferences(session)
+        connection = service.save_connection(session, ConnectionInput(name="内部向量维护", provider="custom",
+            protocol="openai", base_url="http://localhost:9991/v1"))
+        model = service.save_model(session, ModelInput(connection_id=connection.id, name="内部向量",
+            model="internal-test", kind="embedding"))
+        row = EmbeddingSpace(revision_id=model.revision_id)
+        session.add(row)
+        session.flush()
+        space = row.id
         record = Record(kind="text", title="检索测试", content="原文", version=1)
         session.add(record)
         session.flush()
         session.add(Source(record_id=record.id, version=1, origin="text", ordinal=0, text="原文", locator={}, method="text"))
-    space = client.post("/api/model-settings/spaces", json={"model_id": model["id"]}).json()["id"]
     old = client.get("/api/model-settings").json()["active_space_id"]
-    assert client.post(f"/api/model-settings/spaces/{space}/activate").json()["status"] == "building"
+    assert vectors.action(space, "activate")["status"] == "building"
     monkeypatch.setattr(calls, "embed", lambda *_: (_ for _ in ()).throw(AppError("模拟暂时失败")))
     vectors.rebuild(space)
     assert client.get("/api/model-settings").json()["active_space_id"] == old
-    client.post(f"/api/model-settings/spaces/{space}/activate")
+    vectors.action(space, "activate")
     monkeypatch.setattr(calls, "embed", lambda config, texts: [[1.0] + [0.0] * 1023 for _ in texts])
     vectors.rebuild(space)
     assert client.get("/api/model-settings").json()["active_space_id"] == space
@@ -188,6 +198,33 @@ def test_space_rebuild_resume_switch_and_wrong_dimensions(management, monkeypatc
     assert client.get("/api/model-settings").json()["spaces"][-1]["indexed"] == 1
     with pytest.raises(AppError, match="1024"):
         runtime.validate_vectors([[1.0] * 1536], 1)
+
+
+def test_fixed_pipeline_models_cannot_be_changed_through_public_api(management):
+    client = management
+    overview = client.get("/api/model-settings").json()
+    fixed = next(c for c in overview["connections"] if c["protocol"] == "bge")
+    assert fixed["read_only"]
+    assert all(m["kind"] == "llm" for m in overview["models"])
+    with db.SessionLocal() as session:
+        model = session.scalar(select(ManagedModel).where(ManagedModel.kind == "embedding"))
+        identifier, revision_id = model.id, model.revision_id
+        config = session.get(ModelRevision, revision_id).config
+    connection_payload = {"name": "尝试替换", "provider": "custom", "protocol": "openai",
+                          "base_url": "http://localhost:9991/v1", "api_key": "replacement"}
+    assert client.patch('/api/model-settings/connections/' + fixed["id"], json=connection_payload).status_code == 403
+    assert client.post('/api/model-settings/connections', json={**connection_payload, "protocol": "bge"}).status_code == 403
+    payload = {"connection_id": fixed["id"], "name": "尝试替换", "model": "other-model", "kind": "embedding"}
+    assert client.post('/api/model-settings/models', json=payload).status_code == 403
+    # 即使把类型伪装成 LLM，也不能篡改原有内置模型。
+    assert client.patch('/api/model-settings/models/' + identifier, json={**payload, "kind": "llm"}).status_code == 403
+    assert client.post('/api/model-settings/models/' + identifier + '/test', json={"kind": "embedding"}).status_code == 403
+    assert client.post('/api/model-settings/spaces', json={"model_id": identifier}).status_code == 403
+    for action in ("activate", "rebuild", "cancel"):
+        assert client.post('/api/model-settings/spaces/' + overview['spaces'][0]['id'] + '/' + action).status_code == 403
+    with db.SessionLocal() as session:
+        assert session.get(ManagedModel, identifier).revision_id == revision_id
+        assert session.get(ModelRevision, revision_id).config == config
 
 
 def test_invalid_json_preserves_usage_and_cannot_cache(management, monkeypatch):
@@ -241,6 +278,19 @@ def test_prepare_failure_restores_original_file(environment, configure, monkeypa
     with pytest.raises(ValueError, match="旧 LLM"):
         prepare()
     assert private.read_bytes() == original
+
+
+def test_prepare_only_generates_encryption_key(environment, configure, monkeypatch):
+    from wiki_app.config import read_private
+    from wiki_app.modules.model_management.prepare import prepare
+
+    path = configure()
+    for name in ("API_TOKEN", "MODEL_CREDENTIAL_KEY", "LLM_API_KEY", "POSTGRES_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    prepare()
+    values = read_private(path.parent / ".env")
+    assert "API_TOKEN" not in values
+    assert values["MODEL_CREDENTIAL_KEY"]
 
 
 def test_empty_stage_backfill_keeps_existing_revision(management):

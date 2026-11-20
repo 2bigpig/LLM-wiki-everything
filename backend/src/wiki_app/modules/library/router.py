@@ -187,7 +187,7 @@ def record_detail(record_id: str):
             "inputs": [input_out(item) for item in current_inputs(session, record)],
             "history_matches": history_matches(session, record),
             "context_suggestions": context_suggestions(session, record),
-            "insights": [{**columns(item, "id version status explanation evidence feedback error created_at"),
+            "insights": [{**columns(item, "id version status explanation evidence feedback error created_at scheduled_for"),
                           "stale": record.archived or item.version != record.version or (
                               item.status == "ready" and not valid_evidence(session, item.evidence))}
                          for item in session.scalars(select(CaptureInsight).where(

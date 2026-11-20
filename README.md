@@ -43,11 +43,13 @@ npm --prefix frontend run dev
 
 默认访问 **http://127.0.0.1:5173**，API 文档为 **http://127.0.0.1:8000/docs**。API 热重载只监视 `backend/src`；Worker 修改代码后需手动重启。启动脚本固定工作目录，避免 `.env`、资料目录和迁移路径随终端位置改变。
 
-部署参数统一修改根目录 `config.yaml`。LLM、Embedding 连接、模型、密钥及阶段选择在**设置页**管理，运行配置存 PostgreSQL；模型密钥经 Fernet 加密，主密钥和实例口令留在 `.env`。
+部署参数统一修改根目录 `config.yaml`。LLM 连接、模型、密钥及阶段选择在**设置页**管理，运行配置存 PostgreSQL；模型密钥经 Fernet 加密，主密钥留在 `.env`。
 
-首次准备后，用本机编辑器查看 `.env` 的 `API_TOKEN` 并在设置中验证。添加连接、添加模型，运行普通调用／JSON／向量测试，再分配默认或阶段模型。页面修改对新任务生效，无需重启；已有任务按修订恢复。未配置 LLM 仍可保存和读取资料，配置后可继续处理。
+首次准备后直接打开“设置与用量”，选择厂商、填写厂商 API Key 和模型 ID，点击“测试并启用”。LLM 多连接和阶段覆写在“高级设置”中。Embedding 固定使用 BGE-M3，OCR 固定使用 PaddleOCR，用户无需更换或配置。开发阶段取消临时访问口令，用户登录与 RBAC 下一步统一实现。页面修改对新任务生效，无需重启；已有任务按修订恢复。未配置 LLM 仍可保存和读取资料，配置后可继续处理。
 
-支持 OpenAI、Claude、Gemini、DeepSeek 专用适配、Azure，以及 GLM 等国内厂商兼容连接。模型列表可读取或手动填写。测试可能产生费用；Token 额度不是货币账单，未知用量保守预留。Embedding 本轮仅支持 1024 维，换模型先重建独立空间并确认切换。详细升级与排错见 [模型管理](docs/MODEL_MANAGEMENT.md)。
+“LLM 执行时间”可按每日优惠时段统一安排分析、关联、Wiki 和深层回顾。支持跨午夜与时区，结束时默认完成本批，也可选择等待下次时段；默认不开启调度。保存与本地模型处理照常进行，手动测试即时执行，具体折扣以厂商规则为准。
+
+支持 OpenAI、Claude、Gemini、DeepSeek 专用适配、Azure，以及 GLM 等国内厂商兼容连接。模型列表可读取或手动填写。测试可能产生费用；Token 额度不是货币账单，未知用量保守预留。Embedding 固定使用项目内置 BGE-M3（1024 维），页面和接口不提供模型替换。详细升级与排错见 [模型管理](docs/MODEL_MANAGEMENT.md)。
 
 已有旧 `.env` 时，环境准备脚本会先校验并迁移普通参数，保留 `.env.backup.*` 备份；也可单独运行：
 
@@ -56,7 +58,7 @@ npm --prefix frontend run dev
 .\.venv\Scripts\python.exe -m wiki_app.configuration check
 ```
 
-`.env` 接受 `POSTGRES_PASSWORD`、`API_TOKEN`、`MODEL_CREDENTIAL_KEY`，以及仅供旧配置导入的 `LLM_API_KEY`。旧普通环境变量不再覆盖 YAML，检测到后会提示迁移。配置说明与重启规则见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+`.env` 接受 `POSTGRES_PASSWORD`、`MODEL_CREDENTIAL_KEY`，以及仅供旧配置导入的 `LLM_API_KEY`；旧 `API_TOKEN` 仅为兼容保留，不参与鉴权。旧普通环境变量不再覆盖 YAML，检测到后会提示迁移。配置说明与重启规则见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
 
 ## 数据库与模型服务
 
@@ -84,7 +86,7 @@ models:
 
 以上是字段位置示例，请修改现有 YAML 中的对应分组，不要用片段覆盖完整配置。本地后端把资料写入 `paths.data_dir`，OCR/ASR 通过只读 bind mount 访问同一目录。两边只传相对 `storage_key`，避免 Windows/Linux 绝对路径差异。相对路径以配置文件目录为准；改变目录后重新运行服务脚本更新容器挂载，并重启后端。
 
-BGE 第一次编码时加载模型，`/healthz` 的 `model_loaded=false` 仅表示尚未加载。停用语义检索可设置 `models.embeddings_enabled: false`，关键词检索仍可使用。新处理资料会建立向量，旧记录可重新分析补齐；更换嵌入模型需要保持 1024 维并重建索引。
+BGE 第一次编码时加载模型，`/healthz` 的 `model_loaded=false` 仅表示尚未加载。停用语义检索可设置 `models.embeddings_enabled: false`，关键词检索仍可使用。新处理资料会建立向量，旧记录可重新分析补齐；内置向量模型由项目维护，不提供用户替换入口。
 
 模型缓存保存在命名卷 `llm-wiki_ocr-models`、`llm-wiki_asr-models`、`llm-wiki_embeddings`。单独预下载/检查模型：
 

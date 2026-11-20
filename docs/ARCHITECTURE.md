@@ -8,7 +8,7 @@
 
 运行方式：FastAPI 和 Worker 在 Windows 本地 Python 虚拟环境运行，前端在本地 Vite 运行。Docker 只运行 PostgreSQL + pgvector、GPU OCR、GPU ASR 和 CPU BGE-M3，不构建业务后端镜像。
 
-宿主机默认通过 5432/8101/8102/8103 回环端口访问数据库与模型；端口和运行调优参数统一在根目录 config.yaml 管理，.env 只保存数据库密码、模型密钥与访问口令。统一配置模块负责校验、地址派生和容器环境注入，Vite 只读取公共服务参数，业务代码通过 settings.xxx 引用。详见 [配置说明](CONFIGURATION.md)。OCR/ASR 只读挂载宿主机 paths.data_dir，双方使用相同相对 storage_key，避免 Windows/Linux 绝对路径差异。BGE-M3 只接收文本并返回向量，缓存继续使用 llm-wiki_embeddings 卷。
+宿主机默认通过 5432/8101/8102/8103 回环端口访问数据库与模型；端口和运行调优参数统一在根目录 config.yaml 管理，.env 只保存数据库密码与模型密钥。统一配置模块负责校验、地址派生和容器环境注入，Vite 只读取公共服务参数，业务代码通过 settings.xxx 引用。详见 [配置说明](CONFIGURATION.md)。OCR/ASR 只读挂载宿主机 paths.data_dir，双方使用相同相对 storage_key，避免 Windows/Linux 绝对路径差异。BGE-M3 只接收文本并返回向量，缓存继续使用 llm-wiki_embeddings 卷。
 
 - API：输入校验、读取结果、编辑、恢复与提交持久化待办。
 - Procrastinate：持久化排队、按执行 ID 加锁、处理进程心跳及停滞任务重新调度。

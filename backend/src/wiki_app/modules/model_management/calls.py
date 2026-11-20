@@ -32,6 +32,10 @@ def execute(config, operation, reservation, callback, *, run_id=None, stage="", 
                 ModelCall.request_hash == request_hash, ModelCall.status == "succeeded"))
             if cached:
                 return cached.response
+            if operation == "llm":
+                from .scheduling import authorize
+
+                authorize(session, run, stage)
             count = session.scalar(select(func.count()).select_from(ModelCall).where(
                 ModelCall.run_id == run_id, ModelCall.operation == "llm"))
             if operation == "llm" and count >= settings.max_calls_per_run:

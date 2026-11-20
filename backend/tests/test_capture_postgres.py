@@ -100,6 +100,8 @@ def test_legacy_data_backfill_keeps_ids_dates_and_citations(native):
             id="legacy-wiki", title="旧 Wiki", title_key="旧wiki", generated="旧文本", personal="个人笔记",
             version=1, source_ids=["legacy-source"], updated_at=clock))
     command.upgrade(config, "head")
+    from wiki_app.modules.model_management.scheduling import prepare_schema
+    prepare_schema(db.engine)
     with db.transaction() as session:
         record = session.get(Record, "legacy-video")
         assert record.created_at == clock and record.notes == "保留旧备注"
@@ -123,6 +125,8 @@ def test_legacy_data_backfill_keeps_ids_dates_and_citations(native):
 def test_concurrent_captures_and_daily_batch_are_idempotent(native):
     _, config = native
     command.upgrade(config, "head")
+    from wiki_app.modules.model_management.scheduling import prepare_schema
+    prepare_schema(db.engine)
     with TestClient(app) as client:
         def submit(key):
             response = client.post("/api/captures", data={"text": "https://example.com/concurrent"},
