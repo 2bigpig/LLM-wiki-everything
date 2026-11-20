@@ -1,7 +1,6 @@
 """验证用户输入、文件路径、网络地址和模型费用边界。"""
 
 import socket
-from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -109,26 +108,25 @@ def test_model_cache_and_conservative_budget(client, monkeypatch, configure):
     )
     called = []
 
-    class OfflineClient:
-        def __init__(self, **kwargs):
-            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+    from cryptography.fernet import Fernet
 
-        def __enter__(self):
-            return self
+    from wiki_app.modules.model_management import runtime, service
+    from wiki_app.modules.model_management.schemas import ConnectionInput, ModelInput
 
-        def __exit__(self, *args):
-            pass
+    monkeypatch.setenv("MODEL_CREDENTIAL_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+    with db.transaction() as session:
+        connection = service.save_connection(session, ConnectionInput(name="测试", provider="custom",
+            protocol="openai", base_url="http://127.0.0.1:9991/v1", api_key="offline-test-only"))
+        model = service.save_model(session, ModelInput(connection_id=connection.id, name="测试", model="test-model"))
+        service.preferences(session).bindings = {"default": model.id}
 
-        def create(self, **kwargs):
-            called.append(kwargs)
-            return SimpleNamespace(
-                choices=[
-                    SimpleNamespace(message=SimpleNamespace(content=output.model_dump_json()))
-                ],
-                usage=SimpleNamespace(prompt_tokens=20, completion_tokens=30, total_tokens=50),
-            )
+    def offline(*args):
+        called.append(args)
+        return {"text": output.model_dump_json(), "usage": {"input_tokens": 20,
+            "output_tokens": 30, "total_tokens": 50}}
 
-    monkeypatch.setattr(llm, "OpenAI", OfflineClient)
+    monkeypatch.setattr(runtime, "chat", offline)
     first = llm.complete(run_id, "test", "测试", {"text": "原文"}, AnalysisDraft)
     second = llm.complete(run_id, "test", "测试", {"text": "原文"}, AnalysisDraft)
     assert first == second and len(called) == 1

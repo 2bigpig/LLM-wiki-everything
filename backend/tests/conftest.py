@@ -22,6 +22,7 @@ def configure(monkeypatch, tmp_path):
     monkeypatch.setenv("WIKI_RUNTIME", "host")
     monkeypatch.setenv("LLM_API_KEY", "")
     monkeypatch.setenv("API_TOKEN", "")
+    monkeypatch.setenv("MODEL_CREDENTIAL_KEY", "")
     monkeypatch.setenv("POSTGRES_PASSWORD", "test-only")
 
     def update(**sections):

@@ -1,10 +1,16 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+
+async function navigate(page: Page, label: string) {
+  const menu = page.getByRole('button', { name: '打开导航', exact: true })
+  if (await menu.isVisible()) await menu.click()
+  await page.getByRole('link', { name: label, exact: true }).click()
+}
 
 test('保存短文、追溯来源、维护个人 Wiki，并找回旧内容', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: '让收藏，成为知识。' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^我的收藏/ })).toBeVisible()
   await page.getByRole('button', { name: '记录内容', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
@@ -17,7 +23,7 @@ test('保存短文、追溯来源、维护个人 Wiki，并找回旧内容', asy
   await expect(page.getByRole('heading', { name: '内容概览' })).toBeVisible({ timeout: 15000 })
   await page.getByRole('button', { name: '查看来源', exact: true }).first().click()
   await expect(page.locator('.source-card').first()).toContainText('Rerank 在检索后')
-  await page.getByRole('link', { name: '知识 Wiki', exact: true }).click()
+  await navigate(page, '知识 Wiki')
   await page.locator('.wiki-card').filter({ hasText: 'Rerank' }).first().click()
   await expect(page.getByRole('heading', { name: 'Rerank', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '编辑', exact: true }).click()
@@ -48,9 +54,9 @@ test('来源中的 HTML 与图片不能执行，设置和任务页面可访问',
   await expect(page.locator('.analysis-point')).toContainText('Rerank 原文')
   expect(await page.locator('.analysis-point img').count()).toBe(0)
   expect(await page.evaluate(() => '__renderProbe' in window)).toBeFalsy()
-  await page.getByRole('link', { name: '设置与用量', exact: true }).click()
+  await navigate(page, '设置与用量')
   await expect(page.getByRole('heading', { name: '模型用量', exact: true })).toBeVisible()
-  await page.getByRole('link', { name: '整理进度', exact: true }).click()
+  await navigate(page, '整理进度')
   await expect(page.getByRole('table')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy()
 })

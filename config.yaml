@@ -81,6 +81,31 @@ worker:
   worker_shutdown_seconds: 20
   worker_heartbeat_seconds: 10
   worker_stalled_seconds: 90
+# 管理页的初始预设；选择、模型参数和密钥在数据库管理，不反写公共 YAML。
+model_management:
+  probe_timeout_seconds: 60
+  discovery_limit: 200
+  provider_presets:
+    - {id: openai, name: OpenAI, protocol: openai, base_url: 'https://api.openai.com/v1'}
+    - {id: azure, name: Azure OpenAI, protocol: azure, base_url: 'https://example.openai.azure.com'}
+    - {id: anthropic, name: Claude, protocol: anthropic, base_url: 'https://api.anthropic.com'}
+    - {id: google, name: Gemini, protocol: google, base_url: 'https://generativelanguage.googleapis.com'}
+    - {id: deepseek, name: DeepSeek, protocol: deepseek, base_url: 'https://api.deepseek.com/v1'}
+    - {id: bigmodel, name: 智谱国内, protocol: openai, base_url: 'https://open.bigmodel.cn/api/paas/v4'}
+    - {id: zai, name: Z.AI 国际, protocol: openai, base_url: 'https://api.z.ai/api/paas/v4'}
+    - {id: dashscope, name: 阿里百炼, protocol: openai, base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'}
+    - {id: moonshot, name: Kimi, protocol: openai, base_url: 'https://api.moonshot.cn/v1'}
+    - {id: volcengine, name: 豆包 / 火山方舟, protocol: openai, base_url: 'https://ark.cn-beijing.volces.com/api/v3'}
+    - {id: minimax, name: MiniMax, protocol: openai, base_url: 'https://api.minimax.io/v1'}
+    - {id: siliconflow, name: 硅基流动, protocol: openai, base_url: 'https://api.siliconflow.cn/v1'}
+    - {id: hunyuan, name: 腾讯混元, protocol: openai, base_url: 'https://api.hunyuan.cloud.tencent.com/v1'}
+    - {id: qianfan, name: 百度千帆, protocol: openai, base_url: 'https://qianfan.baidubce.com/v2'}
+    - {id: spark, name: 讯飞星火, protocol: openai, base_url: 'https://spark-api-open.xf-yun.com/v1'}
+    - {id: mistral, name: Mistral, protocol: openai, base_url: 'https://api.mistral.ai/v1'}
+    - {id: xai, name: xAI, protocol: openai, base_url: 'https://api.x.ai/v1'}
+    - {id: ollama, name: Ollama, protocol: openai, base_url: 'http://127.0.0.1:11434/v1'}
+    - {id: lmstudio, name: LM Studio, protocol: openai, base_url: 'http://127.0.0.1:1234/v1'}
+    - {id: custom, name: 自定义 / vLLM, protocol: openai, base_url: 'http://127.0.0.1:8001/v1'}
 llm:
   llm_base_url: https://api.openai.com/v1
   llm_model: ''

@@ -24,8 +24,11 @@ raw["llm"]["llm_model"] = "offline-browser-test"
 raw["review"]["review_insights_enabled"] = False
 config = folder / "config.yaml"
 config.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+from cryptography.fernet import Fernet  # noqa: E402
+
 os.environ.update(WIKI_CONFIG_FILE=str(config), WIKI_RUNTIME="host",
-                  POSTGRES_PASSWORD="test-only", API_TOKEN="", LLM_API_KEY="")
+                  POSTGRES_PASSWORD="test-only", API_TOKEN="browser-test-token", LLM_API_KEY="",
+                  MODEL_CREDENTIAL_KEY=Fernet.generate_key().decode())
 
 from test_workflow import fake_complete  # noqa: E402
 
@@ -44,6 +47,12 @@ from wiki_app.modules.review.service import generate_daily  # noqa: E402
 
 db.Base.metadata.create_all(db.engine)
 graph.llm.complete = fake_complete
+from wiki_app.modules.model_management import runtime as model_runtime  # noqa: E402
+
+# 仅浏览器进程注入响应；管理、凭据、修订和计量仍走产品接口。
+model_runtime.chat = lambda *args: {"text": '{"ok":true}', "usage": {
+    "input_tokens": 10, "output_tokens": 2, "total_tokens": 12}}
+model_runtime.embedding = lambda config, key, texts: ([[1.0] + [0.0] * 1023 for _ in texts], {})
 saver = InMemorySaver()
 
 # 浏览器验收使用明确的网页/视频/OCR 替身，不访问真实网站或占用用户 GPU。

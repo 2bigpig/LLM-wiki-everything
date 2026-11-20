@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import APIRouter, Cookie, Depends, FastAPI, Header, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
@@ -24,6 +25,7 @@ from wiki_app.modules.capture.router import router as capture_router
 from wiki_app.modules.graph.router import router as graph_router
 from wiki_app.modules.knowledge.router import router as wiki_router
 from wiki_app.modules.library.router import router as library_router
+from wiki_app.modules.model_management.router import router as models_router
 from wiki_app.modules.review.router import router as review_router
 from wiki_app.modules.search.service import retrieve
 from wiki_app.presentation import columns, run_out
@@ -42,7 +44,7 @@ async def lifespan(_app: FastAPI):
     db.engine.dispose()
 
 
-app = FastAPI(title="知间 · 个人知识库", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="everything · 个人知识库", version="0.1.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -75,6 +77,13 @@ app.add_middleware(
 @app.exception_handler(AppError)
 async def app_error(_request: Request, exc: AppError):
     return JSONResponse({"detail": exc.message, "code": exc.code}, status_code=exc.status)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request: Request, exc: RequestValidationError):
+    """FastAPI 默认错误含原始 input，管理表单可能携带密钥，统一只回字段路径。"""
+    fields = [".".join(map(str, e["loc"])) for e in exc.errors()]
+    return JSONResponse({"detail": "参数校验失败：" + "、".join(fields), "code": "validation_error"}, status_code=422)
 
 
 @app.exception_handler(SQLAlchemyError)
@@ -113,6 +122,19 @@ def authenticate(x_api_key: str = Header(default=""), wiki_session: str = Cookie
 
 
 api = APIRouter(prefix="/api", dependencies=[Depends(authenticate)])
+
+
+def authenticate_models(x_api_key: str = Header(default="")):
+    """凭据管理比只读使用更严格：必须配置实例口令且显式携带，不能以空口令访问。"""
+    token = get_settings().api_token.get_secret_value()
+    if not token:
+        raise AppError("请先运行 scripts/prepare-model-settings.ps1 配置实例口令和模型主密钥。",
+                       "management_setup_required", 403)
+    if not secrets.compare_digest(token, x_api_key):
+        raise AppError("请先在设置中验证实例口令。", "unauthorized", 401)
+
+
+api.include_router(models_router, dependencies=[Depends(authenticate_models)])
 api.include_router(library_router)
 api.include_router(wiki_router)
 
@@ -166,13 +188,17 @@ def overview():
 @api.get("/capabilities")
 def capabilities():
     settings = get_settings()
+    from wiki_app.modules.model_management.service import public_status
+
+    with db.transaction() as session:
+        status = public_status(session)
     return {
-        "llm": settings.llm_configured,
-        "llm_model": settings.llm_model,
+        "llm": status["llm"],
+        "llm_model": status["llm_model"],
         "ocr": bool(settings.ocr_url),
         "asr": bool(settings.asr_url),
-        "embeddings": settings.embeddings_enabled,
-        "embedding_model": settings.embedding_model,
+        "embeddings": status["embeddings"],
+        "embedding_model": status["embedding_model"],
         "browser": settings.browser_enabled,
         "access_token_required": bool(settings.api_token.get_secret_value()),
         "max_upload_mb": settings.max_upload_mb,
@@ -196,11 +222,11 @@ def usage():
         return {
             "used_tokens": sum(row.charged_tokens for row in rows),
             "limit": get_settings().monthly_token_limit,
-            "has_estimates": any(row.input_tokens is None for row in rows),
+            "has_estimates": any(row.input_tokens is None and row.charged_tokens > 0 for row in rows),
             "calls": [
                 columns(
                     row,
-                    "id run_id stage model status charged_tokens input_tokens output_tokens duration_seconds created_at",
+                    "id run_id stage model status charged_tokens input_tokens output_tokens duration_seconds created_at connection_id revision_id operation",
                 )
                 for row in rows[:get_settings().usage_calls_limit]
             ],
@@ -238,8 +264,13 @@ def cancel_run(run_id: str):
 
 @api.get("/search")
 def search(q: str = Query(min_length=1, max_length=300)):
-    return {"items": retrieve(q, limit=get_settings().search_api_limit),
-            "semantic": get_settings().embeddings_enabled}
+    warnings = []
+    items = retrieve(q, limit=get_settings().search_api_limit, warnings=warnings)
+    from wiki_app.modules.model_management.service import public_status
+
+    with db.transaction() as session:
+        enabled = public_status(session)["embeddings"]
+    return {"items": items, "semantic": enabled and not warnings, "warnings": warnings}
 
 
 api.include_router(capture_router)

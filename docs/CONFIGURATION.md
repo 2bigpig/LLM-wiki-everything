@@ -58,3 +58,10 @@ npm --prefix frontend run dev
 - 修改镜像依赖：执行 `start-services.ps1 build`，完成后再启动服务。旧镜像在未挂载配置模块时不兼容新入口，第一次更新至少重新构建 BGE 镜像。
 
 模型准备仍使用 `scripts/prepare-models.ps1 -SkipBuild -IncludeEmbeddings`；没有匹配镜像时去掉 `-SkipBuild`。所有进程都在启动时校验配置，不增加后台配置管理服务，不支持配置热更新。实际原件、数据库数据与模型权重不写入 YAML 或 Git。
+## 运行时模型配置（0003 起）
+
+厂商预设位于 `model_management.provider_presets`，只包含公共连接模板。管理页编辑的连接、模型参数、阶段选择和向量空间保存 PostgreSQL，YAML 不再覆盖它们。原 `llm` 参数只用于首次导入，预算上限仍生效。
+
+`.env` 新增 `MODEL_CREDENTIAL_KEY`，由 `scripts/prepare-model-settings.ps1` 生成；它是凭据加密主密钥，必须与数据库备份配对保管。`LLM_API_KEY` 仅兼容首次迁移。运行时配置无需重启；实例口令、主密钥或部署配置变化需重启后端。
+
+Embedding 本轮固定 1024 维；改变模型需要独立空间重建并切换，不能仅改容器模型后继续使用旧向量。完整说明见 [模型管理](MODEL_MANAGEMENT.md)。

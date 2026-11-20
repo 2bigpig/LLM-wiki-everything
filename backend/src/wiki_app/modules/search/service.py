@@ -12,7 +12,8 @@ from sqlalchemy import case, func, literal_column, or_, select
 from wiki_app import db
 from wiki_app.config import get_settings
 from wiki_app.errors import AppError, ConfigurationRequired
-from wiki_app.models import Analysis, CaptureInput, Record, Source
+from wiki_app.models import Analysis, CaptureInput, Record, Source, SourceVector
+from wiki_app.modules.model_management import calls, vectors
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,12 @@ def searchable(value: str) -> str:
     return " ".join(terms(value))
 
 
-def embed(texts: list[str]) -> list[list[float]]:
+def embed(texts: list[str], config=None) -> list[list[float]]:
     """调用 Docker 中的 BGE-M3；校验模型、批量和维度，防止错误向量写入索引。"""
     if not texts:
         return []
+    if config is not None:
+        return calls.embed(config, texts)
     settings = get_settings()
     if not settings.embedding_url:
         raise ConfigurationRequired("请检查 config.yaml 的模型服务配置，并启动 bge 容器。")
@@ -70,15 +73,21 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 
 def index_sources(record_id: str, version: int):
-    if not get_settings().embeddings_enabled:
-        return
-    with db.SessionLocal() as session:
+    with db.transaction() as session:
+        try:
+            space_id, config = vectors.active_config(session)
+        except AppError:
+            logger.warning("向量连接配置不可用，保留关键词索引 record_id=%s", record_id)
+            return
+        if not config:
+            return
         sources = list(
             session.scalars(
                 select(Source).where(
                     Source.record_id == record_id,
                     Source.version == version,
-                    Source.embedding.is_(None),
+                    ~select(SourceVector.id).where(SourceVector.source_id == Source.id,
+                        SourceVector.space_id == space_id).exists(),
                 )
             )
         )
@@ -86,20 +95,23 @@ def index_sources(record_id: str, version: int):
     batch_size = get_settings().index_batch_size
     for offset in range(0, len(sources), batch_size):
         batch = sources[offset : offset + batch_size]
-        vectors = embed([s.text for s in batch])
-        with db.transaction() as session:
-            for source, vector in zip(batch, vectors, strict=True):
-                stored = session.get(Source, source.id)
-                stored.embedding, stored.embedding_model = vector, get_settings().embedding_model
+        try:
+            values = embed([s.text for s in batch], config)
+            vectors.store(space_id, batch, values)
+        except AppError:
+            # 模型异常或预算不足不能阻止已保存内容的关键词检索和后续 Wiki 整理。
+            logger.warning("向量索引暂不可用 record_id=%s space_id=%s", record_id, space_id)
+            return
 
 
-def retrieve(query: str, limit: int | None = None, exclude_record: str | None = None) -> list[dict]:
+def retrieve(query: str, limit: int | None = None, exclude_record: str | None = None,
+             warnings: list[str] | None = None) -> list[dict]:
     settings = get_settings()
     limit = settings.search_default_limit if limit is None else limit
     tokens = terms(query)[:settings.search_max_terms]
     if not tokens:
         return []
-    with db.SessionLocal() as session:
+    with db.transaction() as session:
         # 先在数据库中选出同资源、同原文的一个代表，再做关键词/向量召回。
         # 原始事件与备注仍独立持久化，检索不把相同原文当成多份证据。
         identity = func.coalesce(CaptureInput.resource_id, Source.id)
@@ -144,17 +156,19 @@ def retrieve(query: str, limit: int | None = None, exclude_record: str | None = 
             keyword = base.where(or_(*matches)).order_by(score.desc(), Source.id).limit(settings.search_candidates)
         lists = [list(session.execute(keyword))]
         settings = get_settings()
-        if settings.embeddings_enabled and db.engine.dialect.name == "postgresql":
-            vector = embed([query])[0]
-            semantic = (
-                base.where(Source.embedding_model == settings.embedding_model)
-                .order_by(
-                    Source.embedding.cosine_distance(vector),
-                    Source.id,
-                )
-                .limit(settings.search_candidates)
-            )
-            lists.append(list(session.execute(semantic)))
+        if db.engine.dialect.name == "postgresql":
+            try:
+                space_id, config = vectors.active_config(session)
+                if config:
+                    vector = embed([query], config)[0]
+                    semantic = base.join(SourceVector, SourceVector.source_id == Source.id).where(
+                        SourceVector.space_id == space_id).order_by(
+                        SourceVector.embedding.cosine_distance(vector), Source.id).limit(settings.search_candidates)
+                    lists.append(list(session.execute(semantic)))
+            except AppError:
+                if warnings is not None:
+                    warnings.append("语义检索暂不可用，本次使用关键词检索。")
+                logger.warning("语义检索暂不可用，本次使用关键词")
         fused: dict[str, dict] = {}
         for ranked in lists:
             for rank, (source, record) in enumerate(ranked, 1):

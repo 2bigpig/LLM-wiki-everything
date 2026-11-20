@@ -18,11 +18,13 @@ const paths: Record<string, string> = {
   edit: 'M14 5l5 5M4 20l5-1L21 7l-5-5L4 14z',
   download: 'M12 3v12M7 10l5 5 5-5M4 17v4h16v-4',
   branch: 'M6 3v12a3 3 0 0 0 3 3h9M6 8h9a3 3 0 0 0 3-3V3M18 15v6',
+  archive: 'M9 4H4v16h5M15 4h5v16h-5M9 12h6',
+  menu: 'M4 6h16M4 12h16M4 18h16',
 }
 </script>
 <template>
-  <svg :width="size || 20" :height="size || 20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg :width="size || 18" :height="size || 18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path :d="paths[name] || paths.file" />
   </svg>
 </template>

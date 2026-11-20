@@ -20,7 +20,7 @@ from test_workflow import fake_complete
 from wiki_app import db
 from wiki_app.config import get_settings
 from wiki_app.main import app
-from wiki_app.models import ProcessingRun, Source
+from wiki_app.models import EmbeddingSpace, ModelPreferences, ProcessingRun, Source, SourceVector
 from wiki_app.modules.processing import graph
 from wiki_app.modules.search import service as search
 
@@ -71,10 +71,12 @@ def test_postgres_migration_checkpoint_search_and_queue(monkeypatch, tmp_path, c
                 vector = [1.0] + [0.0] * 1023
                 with db.transaction() as session:
                     source = session.scalar(select(Source))
-                    source.embedding, source.embedding_model = vector, "BAAI/bge-m3"
+                    space = session.scalar(select(EmbeddingSpace))
+                    session.add(SourceVector(space_id=space.id, source_id=source.id, embedding=vector))
+                    session.get(ModelPreferences, "personal").active_space_id = space.id
                 configure(models={"embeddings_enabled": True})
                 get_settings.cache_clear()
-                monkeypatch.setattr(search, "embed", lambda values: [vector for _ in values])
+                monkeypatch.setattr(search, "embed", lambda values, config=None: [vector for _ in values])
                 assert client.get("/api/search?q=相关性").json()["items"]
                 configure(models={"embeddings_enabled": False})
                 get_settings.cache_clear()

@@ -101,6 +101,10 @@ def extract_node(state: RunState):
         )
     pieces, coverage = extract_record(record, attachments)
     with db.transaction() as session:
+        from wiki_app.modules.model_management.service import config_lock
+
+        # 与向量空间激活串行提交，避免“检查已补齐”与新来源提交交错。
+        config_lock(session)
         run, record = context(session, state["run_id"])
         for attachment in attachments:
             if not session.get(Attachment, attachment.id):
@@ -122,6 +126,8 @@ def extract_node(state: RunState):
                     )
                 )
         record.coverage = coverage
+    # 向量化独立于 LLM；无密钥或分析失败时原文仍可进入语义检索。
+    index_sources(record.id, run.version)
     return {}
 
 
@@ -189,7 +195,7 @@ def analyze_node(state: RunState):
                     run_id=run.id,
                     record_id=record.id,
                     version=run.version,
-                    model=get_settings().llm_model,
+                    model=llm.used_model(run.id),
                     **result.model_dump(),
                 )
             session.add(analysis)
@@ -205,7 +211,6 @@ def relate_node(state: RunState):
             return {}
         sources = sources_for(session, record.id, run.version)
         analysis = session.scalar(select(Analysis).where(Analysis.run_id == run.id))
-    index_sources(record.id, run.version)
     candidates = retrieve(
         " ".join(analysis.topics) + " " + analysis.summary[:get_settings().relation_summary_chars], limit=get_settings().relation_candidates, exclude_record=record.id
     )

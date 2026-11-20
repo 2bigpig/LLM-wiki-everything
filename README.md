@@ -1,6 +1,6 @@
-# 知间 · llm_wiki_everything
+# everything
 
-个人知识库：Vue 3 + TypeScript、FastAPI、PostgreSQL + pgvector、LangGraph、Procrastinate。产品范围见 [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md)。
+个人知识库：Vue 3 + TypeScript、FastAPI、PostgreSQL + pgvector、LangGraph、Procrastinate。产品范围见 [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md)。 界面视觉与可访问性约定见 [UI 设计说明](docs/UI_DESIGN.md)。
 
 ## 启动：业务后端本地运行
 
@@ -12,6 +12,7 @@ FastAPI 和 Worker 是两个 Windows 本地 Python 进程，前端使用本地 V
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\start-services.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\start-backend.ps1 -Service migrate
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-model-settings.ps1
 ```
 
 准备脚本只在缺少 `.env` 时复制 `.env.example`，依赖安装到 `.venv`，便携 FFmpeg 解压到 `data/tools/ffmpeg`，只加入启动进程的 PATH。仅处理文字时可用 `-SkipFFmpeg` 跳过下载。
@@ -42,16 +43,11 @@ npm --prefix frontend run dev
 
 默认访问 **http://127.0.0.1:5173**，API 文档为 **http://127.0.0.1:8000/docs**。API 热重载只监视 `backend/src`；Worker 修改代码后需手动重启。启动脚本固定工作目录，避免 `.env`、资料目录和迁移路径随终端位置改变。
 
-普通参数统一修改根目录 `config.yaml`，密钥只放 `.env`。例如在 YAML 的 `llm` 分组配置 OpenAI 兼容接口（支持 Chat Completions、JSON 输出和 max_tokens）：
+部署参数统一修改根目录 `config.yaml`。LLM、Embedding 连接、模型、密钥及阶段选择在**设置页**管理，运行配置存 PostgreSQL；模型密钥经 Fernet 加密，主密钥和实例口令留在 `.env`。
 
-```yaml
-llm:
-  llm_base_url: https://你的服务地址/v1
-  llm_model: 你的模型名称
-  # 其他参数保留 config.yaml 中的配置。
-```
+首次准备后，用本机编辑器查看 `.env` 的 `API_TOKEN` 并在设置中验证。添加连接、添加模型，运行普通调用／JSON／向量测试，再分配默认或阶段模型。页面修改对新任务生效，无需重启；已有任务按修订恢复。未配置 LLM 仍可保存和读取资料，配置后可继续处理。
 
-在 `.env` 填写 `LLM_API_KEY=你的密钥`。未填模型密钥时仍能保存资料，分析任务会显示“等待配置”。配置完成后重启 API/Worker，再在页面继续处理。Token 额度不等同于人民币预算；未知用量保守预留。需要本地访问口令时设置 `.env` 的 `API_TOKEN`，它与模型密钥分开。
+支持 OpenAI、Claude、Gemini、DeepSeek 专用适配、Azure，以及 GLM 等国内厂商兼容连接。模型列表可读取或手动填写。测试可能产生费用；Token 额度不是货币账单，未知用量保守预留。Embedding 本轮仅支持 1024 维，换模型先重建独立空间并确认切换。详细升级与排错见 [模型管理](docs/MODEL_MANAGEMENT.md)。
 
 已有旧 `.env` 时，环境准备脚本会先校验并迁移普通参数，保留 `.env.backup.*` 备份；也可单独运行：
 
@@ -60,7 +56,7 @@ llm:
 .\.venv\Scripts\python.exe -m wiki_app.configuration check
 ```
 
-`.env` 只接受 `POSTGRES_PASSWORD`、`LLM_API_KEY`、`API_TOKEN`。旧普通环境变量不再覆盖 YAML，检测到后会提示迁移。配置说明与重启规则见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+`.env` 接受 `POSTGRES_PASSWORD`、`API_TOKEN`、`MODEL_CREDENTIAL_KEY`，以及仅供旧配置导入的 `LLM_API_KEY`。旧普通环境变量不再覆盖 YAML，检测到后会提示迁移。配置说明与重启规则见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
 
 ## 数据库与模型服务
 

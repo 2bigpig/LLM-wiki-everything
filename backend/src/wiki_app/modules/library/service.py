@@ -44,6 +44,9 @@ def queue_run(session: Session, record: Record) -> ProcessingRun:
     record.status = "queued"
     session.add(run)
     session.flush()
+    from wiki_app.modules.model_management.service import snapshot
+
+    snapshot(session, run)
     return run
 
 

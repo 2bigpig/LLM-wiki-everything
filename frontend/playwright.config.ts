@@ -21,6 +21,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: { baseURL: frontendUrl, trace: 'retain-on-failure',
+    extraHTTPHeaders: { 'X-API-Key': 'browser-test-token' },
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     launchOptions: { executablePath } },
   projects: [

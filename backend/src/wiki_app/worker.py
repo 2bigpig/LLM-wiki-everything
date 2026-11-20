@@ -14,7 +14,7 @@ from sqlalchemy import select
 from wiki_app import db
 from wiki_app.config import get_settings
 from wiki_app.logging_config import configure_logging
-from wiki_app.models import CaptureInsight, ProcessingRun, Record, now
+from wiki_app.models import CaptureInsight, EmbeddingSpace, ProcessingRun, Record, now
 from wiki_app.modules.processing.graph import execute_run
 
 logger = logging.getLogger("wiki_app.worker")
@@ -40,6 +40,14 @@ def process_insight(insight_id: str):
     from wiki_app.modules.review.insights import generate_insight
 
     generate_insight(insight_id)
+
+
+@app.task(queue="pipeline")
+def rebuild_space(space_id: str):
+    """向量重建继续使用现有 Worker；失败状态由空间持久化，用户可恢复。"""
+    from wiki_app.modules.model_management.vectors import rebuild
+
+    rebuild(space_id)
 
 
 async def dispatch():
@@ -71,6 +79,15 @@ async def dispatch():
                     await process_run.configure(
                         lock=f"run:{run_id}", queueing_lock=f"run:{run_id}"
                     ).defer_async(run_id=run_id)
+                except procrastinate.exceptions.AlreadyEnqueued:
+                    pass
+            with db.SessionLocal() as session:
+                spaces = list(session.scalars(select(EmbeddingSpace.id).where(
+                    EmbeddingSpace.status == "building")))
+            for space_id in spaces:
+                try:
+                    await rebuild_space.configure(lock=f"space:{space_id}",
+                        queueing_lock=f"space:{space_id}").defer_async(space_id=space_id)
                 except procrastinate.exceptions.AlreadyEnqueued:
                     pass
             if settings.review_insights_enabled:

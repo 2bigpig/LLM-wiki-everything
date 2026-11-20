@@ -89,6 +89,8 @@ class ProcessingRun(Base):
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
     stage: Mapped[str] = mapped_column(String(30), default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # 阶段只存非敏感修订 ID；自动重试不能悄悄切换模型。
+    model_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
@@ -155,7 +157,10 @@ class ModelCall(Base):
     __tablename__ = "model_calls"
     __table_args__ = (Index("ix_call_cache", "run_id", "request_hash", "status"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    run_id: Mapped[str] = mapped_column(ForeignKey("processing_runs.id"), index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("processing_runs.id"), index=True)
+    connection_id: Mapped[str | None] = mapped_column(String(36))
+    revision_id: Mapped[str | None] = mapped_column(String(36))
+    operation: Mapped[str] = mapped_column(String(30), default="llm")
     stage: Mapped[str] = mapped_column(String(50))
     request_hash: Mapped[str] = mapped_column(String(64))
     model: Mapped[str] = mapped_column(String(200))
@@ -166,6 +171,78 @@ class ModelCall(Base):
     response: Mapped[dict | None] = mapped_column(JSON)
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class ModelConnection(Base):
+    """连接与凭据绑定；更换目标增加 endpoint_version，使旧任务停止而非泄露密钥。"""
+
+    __tablename__ = "model_connections"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(100))
+    provider: Mapped[str] = mapped_column(String(50))
+    protocol: Mapped[str] = mapped_column(String(30))
+    base_url: Mapped[str] = mapped_column(String(500))
+    key_cipher: Mapped[str] = mapped_column(Text, default="")
+    endpoint_version: Mapped[int] = mapped_column(Integer, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ManagedModel(Base):
+    __tablename__ = "managed_models"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("model_connections.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(20))
+    revision_id: Mapped[str] = mapped_column(String(36))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ModelRevision(Base):
+    """不可变调用参数，不保存明文或加密凭据；轮换密钥不改变向量空间身份。"""
+
+    __tablename__ = "model_revisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    model_id: Mapped[str] = mapped_column(ForeignKey("managed_models.id"), index=True)
+    config: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ModelPreferences(Base):
+    __tablename__ = "model_preferences"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="personal")
+    bindings: Mapped[dict] = mapped_column(JSON, default=dict)
+    active_space_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class ModelProbe(Base):
+    __tablename__ = "model_probes"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    revision_id: Mapped[str] = mapped_column(ForeignKey("model_revisions.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    succeeded: Mapped[bool] = mapped_column(Boolean)
+    detail: Mapped[str] = mapped_column(Text)
+    duration_seconds: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class EmbeddingSpace(Base):
+    __tablename__ = "embedding_spaces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    revision_id: Mapped[str] = mapped_column(ForeignKey("model_revisions.id"), unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    activate_when_ready: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SourceVector(Base):
+    __tablename__ = "source_vectors"
+    __table_args__ = (UniqueConstraint("space_id", "source_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    space_id: Mapped[str] = mapped_column(ForeignKey("embedding_spaces.id"), index=True)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024).with_variant(JSON(), "sqlite"))
 
 
 class Resource(Base):

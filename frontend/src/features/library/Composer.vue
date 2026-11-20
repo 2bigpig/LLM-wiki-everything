@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type CaptureHistory, type Recognition, type RecordItem } from '../../api'
 import { invalidate, notify } from '../../state'
@@ -14,6 +14,7 @@ const includedCount = computed(() => recognition.value?.links.filter(link => !ex
 const canSave = computed(() => !!(text.value.trim() || files.value.length) && !busy.value)
 let submissionKey = crypto.randomUUID(), timer: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined, sequence = 0
+const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
 
 // 草稿变化代表新的提交意图；相同草稿的网络重试继续使用同一个幂等键。
 watch([text, title, notes, purpose, files, excluded], () => {
@@ -91,13 +92,17 @@ async function save() {
   finally { busy.value = false }
 }
 onMounted(async () => { await nextTick(); dialog.value?.showModal(); editor.value?.focus(); void recognizeNow() })
-onUnmounted(() => { clearTimeout(timer); controller?.abort(); dialog.value?.close() })
+onBeforeUnmount(() => {
+  clearTimeout(timer); controller?.abort(); dialog.value?.close()
+  // 在移除弹窗前恢复触发元素焦点，键盘用户关闭后可以继续操作。
+  if (opener?.isConnected) opener.focus({ preventScroll: true })
+})
 </script>
 
 <template>
   <dialog ref="dialog" class="compose-dialog" @cancel.prevent="close" @click="e => { if (e.target === dialog) close() }">
     <form @submit.prevent="save" @dragover.prevent @drop.prevent="drop">
-      <div class="dialog-heading"><div><span class="eyebrow">CAPTURE WHAT MATTERS</span><h2>留下一份新知识</h2></div><button type="button" class="icon-button" aria-label="关闭" :disabled="busy" @click="close"><Icon name="close" /></button></div>
+      <div class="dialog-heading"><div><span class="eyebrow">统一录入</span><h2>记录内容</h2></div><button type="button" class="icon-button" aria-label="关闭" :disabled="busy" @click="close"><Icon name="close" /></button></div>
       <fieldset class="capture-fields" :disabled="busy">
         <label class="field">内容<textarea ref="editor" v-model="text" rows="7" maxlength="200000" placeholder="写下想法，粘贴一个或多个链接，也可以粘贴截图或拖入文件…" @paste="paste" /></label>
         <div class="capture-tools"><button type="button" class="button" @click="picker?.click()"><Icon name="plus" :size="16" />添加附件</button><span class="subtle">{{ recognizing ? '正在识别…' : `已识别 ${includedCount} 个待读链接 · ${files.length} 个附件` }}</span></div>
@@ -108,7 +113,7 @@ onUnmounted(() => { clearTimeout(timer); controller?.abort(); dialog.value?.clos
         <details class="capture-options"><summary>更多选项</summary><label class="field">标题 <span class="optional">选填</span><input v-model="title" maxlength="300" placeholder="不填会根据内容命名" /></label><div class="form-grid"><label class="field">整理用途<select v-model="purpose"><option value="auto">自动判断</option><option value="learning">学习资料</option><option value="interview">面试复盘</option><option value="note">个人随笔</option></select></label><label class="field">为什么收藏 <span class="optional">选填</span><input v-model="notes" maxlength="20000" placeholder="此刻的想法，也许与上次不同" /></label></div></details>
       </fieldset>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-      <div class="dialog-footer"><span><Icon name="spark" :size="16" />一次留下，保留每一份来源</span><button class="button primary" :disabled="!canSave"><span v-if="busy" class="spinner" />{{ busy ? '正在保存…' : '保存到知识库' }}<Icon name="arrow" :size="17" /></button></div>
+      <div class="dialog-footer"><span><Icon name="link" :size="16" />原始内容与来源一同保存</span><button class="button primary" :disabled="!canSave"><span v-if="busy" class="spinner" />{{ busy ? '正在保存…' : '保存到知识库' }}<Icon name="arrow" :size="17" /></button></div>
     </form>
   </dialog>
 </template>

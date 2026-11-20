@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[3]
 Positive = Annotated[int, Field(gt=0)]
 Seconds = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 Port = Annotated[int, Field(ge=1, le=65535)]
-SECRET_KEYS = ("POSTGRES_PASSWORD", "LLM_API_KEY", "API_TOKEN")
+SECRET_KEYS = ("POSTGRES_PASSWORD", "LLM_API_KEY", "API_TOKEN", "MODEL_CREDENTIAL_KEY")
 
 
 class UniqueLoader(yaml.SafeLoader):
@@ -273,7 +273,22 @@ class Review(Section):
         return value
 
 
+class ProviderPreset(Section):
+    id: str
+    name: str
+    protocol: Literal["openai", "azure", "anthropic", "google", "deepseek", "bge"]
+    base_url: str
+
+
+class ModelManagement(Section):
+    # 公共预设只含地址和协议；用户密钥及实际选择保存数据库。
+    provider_presets: list[ProviderPreset]
+    probe_timeout_seconds: Seconds
+    discovery_limit: Positive
+
+
 class PublicConfig(Section):
+    model_management: ModelManagement
     capture: Capture
     graph: Graph
     review: Review
@@ -320,6 +335,7 @@ class Settings(PublicConfig):
     postgres_password: SecretStr = Field(default=SecretStr(""), exclude=True)
     llm_api_key: SecretStr = Field(default=SecretStr(""), exclude=True)
     api_token: SecretStr = Field(default=SecretStr(""), exclude=True)
+    model_credential_key: SecretStr = Field(default=SecretStr(""), exclude=True)
 
     def __getattr__(self, name):
         # 兼容已有扁平调用，业务模块无需关心 YAML 如何分组。

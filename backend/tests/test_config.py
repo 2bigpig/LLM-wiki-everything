@@ -115,7 +115,7 @@ def test_migration_preserves_secrets_comments_and_effective_settings(configure, 
                 + quote(password, safe="") + "@127.0.0.1:15432/wiki\n")
     private.write_text(original, encoding="utf-8")
     migrate_env(path)
-    assert set(dotenv_values(private)) == {"POSTGRES_PASSWORD", "LLM_API_KEY", "API_TOKEN"}
+    assert set(dotenv_values(private)) == {"POSTGRES_PASSWORD", "LLM_API_KEY", "API_TOKEN", "MODEL_CREDENTIAL_KEY"}
     assert dotenv_values(private)["POSTGRES_PASSWORD"] == password
     assert "#" in path.read_text(encoding="utf-8")
     assert next(path.parent.glob(".env.backup.*")).exists()
